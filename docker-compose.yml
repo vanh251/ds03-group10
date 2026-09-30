@@ -160,7 +160,7 @@ services:
   # ========================================================
   identity-service:
     build:
-      context: ./identity-service
+      context: ./src/identity-service
       dockerfile: Dockerfile
     container_name: identity-service
     expose:
@@ -186,7 +186,7 @@ services:
 
   driver-service:
     build:
-      context: ./driver-service
+      context: ./src/driver-service
       dockerfile: Dockerfile
     container_name: driver-service
     expose:
@@ -210,7 +210,7 @@ services:
 
   trip-service:
     build:
-      context: ./trip-service
+      context: ./src/trip-service
       dockerfile: Dockerfile
     container_name: trip-service
     expose:
@@ -237,7 +237,7 @@ services:
 
   matching-service:
     build:
-      context: ./matching-service
+      context: ./src/matching-service
       dockerfile: Dockerfile
     container_name: matching-service
     expose:
@@ -267,7 +267,7 @@ services:
 
   pricing-service:
     build:
-      context: ./pricing-service
+      context: ./src/pricing-service
       dockerfile: Dockerfile
     container_name: pricing-service
     expose:
@@ -285,7 +285,7 @@ services:
 
   payment-service:
     build:
-      context: ./payment-service
+      context: ./src/payment-service
       dockerfile: Dockerfile
     container_name: payment-service
     expose:
@@ -312,7 +312,7 @@ services:
 
   notification-service:
     build:
-      context: ./notification-service
+      context: ./src/notification-service
       dockerfile: Dockerfile
     container_name: notification-service
     expose:
@@ -337,7 +337,7 @@ services:
   # ========================================================
   api-gateway:
     build:
-      context: ./api-gateway
+      context: ./src/api-gateway
       dockerfile: Dockerfile
     container_name: api-gateway
     ports:

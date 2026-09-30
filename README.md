@@ -57,57 +57,58 @@ ride-hailing-microservices/
 ├── .env.example
 ├── .gitignore
 ├── README.md
+├── docs/
+├── deploy/
+│   └── monitoring/
+│       ├── prometheus/
+│       │   └── prometheus.yml
+│       └── grafana/
+│           └── provisioning/
+│               └── datasources/
+│                   └── prometheus.yml
 │
-├── api-gateway/            # Independent Gradle Project (:8080)
-│   ├── Dockerfile
-│   ├── build.gradle
-│   ├── settings.gradle
-│   ├── gradlew / gradlew.bat
-│   └── src/
-│
-├── identity-service/       # Independent Gradle Project (:8081)
-│   ├── Dockerfile
-│   ├── build.gradle
-│   └── src/
-│
-├── driver-service/         # Independent Gradle Project (:8082)
-│   ├── Dockerfile
-│   ├── build.gradle
-│   └── src/
-│
-├── trip-service/           # Independent Gradle Project (:8083)
-│   ├── Dockerfile
-│   ├── build.gradle
-│   └── src/
-│
-├── matching-service/       # Independent Gradle Project (:8084)
-│   ├── Dockerfile
-│   ├── build.gradle
-│   └── src/
-│
-├── pricing-service/        # Independent Gradle Project (:8085)
-│   ├── Dockerfile
-│   ├── build.gradle
-│   └── src/
-│
-├── payment-service/        # Independent Gradle Project (:8086)
-│   ├── Dockerfile
-│   ├── build.gradle
-│   └── src/
-│
-├── notification-service/   # Independent Gradle Project (:8087)
-│   ├── Dockerfile
-│   ├── build.gradle
-│   └── src/
-│
-└── deploy/
-    └── monitoring/
-        ├── prometheus/
-        │   └── prometheus.yml
-        └── grafana/
-            └── provisioning/
-                └── datasources/
-                    └── prometheus.yml
+└── src/
+    ├── api-gateway/            # Independent Gradle Project (:8080)
+    │   ├── Dockerfile
+    │   ├── build.gradle
+    │   ├── settings.gradle
+    │   ├── gradlew / gradlew.bat
+    │   └── src/
+    │
+    ├── identity-service/       # Independent Gradle Project (:8081)
+    │   ├── Dockerfile
+    │   ├── build.gradle
+    │   └── src/
+    │
+    ├── driver-service/         # Independent Gradle Project (:8082)
+    │   ├── Dockerfile
+    │   ├── build.gradle
+    │   └── src/
+    │
+    ├── trip-service/           # Independent Gradle Project (:8083)
+    │   ├── Dockerfile
+    │   ├── build.gradle
+    │   └── src/
+    │
+    ├── matching-service/       # Independent Gradle Project (:8084)
+    │   ├── Dockerfile
+    │   ├── build.gradle
+    │   └── src/
+    │
+    ├── pricing-service/        # Independent Gradle Project (:8085)
+    │   ├── Dockerfile
+    │   ├── build.gradle
+    │   └── src/
+    │
+    ├── payment-service/        # Independent Gradle Project (:8086)
+    │   ├── Dockerfile
+    │   ├── build.gradle
+    │   └── src/
+    │
+    └── notification-service/   # Independent Gradle Project (:8087)
+        ├── Dockerfile
+        ├── build.gradle
+        └── src/
 ```
 
 ---
@@ -135,14 +136,14 @@ ride-hailing-microservices/
 ### Step 1: Build services individually (Independent Gradle)
 
 ```bash
-cd api-gateway && ./gradlew clean build && cd ..
-cd identity-service && ./gradlew clean build && cd ..
-cd driver-service && ./gradlew clean build && cd ..
-cd trip-service && ./gradlew clean build && cd ..
-cd matching-service && ./gradlew clean build && cd ..
-cd pricing-service && ./gradlew clean build && cd ..
-cd payment-service && ./gradlew clean build && cd ..
-cd notification-service && ./gradlew clean build && cd ..
+cd src/api-gateway && ./gradlew clean build && cd ../..
+cd src/identity-service && ./gradlew clean build && cd ../..
+cd src/driver-service && ./gradlew clean build && cd ../..
+cd src/trip-service && ./gradlew clean build && cd ../..
+cd src/matching-service && ./gradlew clean build && cd ../..
+cd src/pricing-service && ./gradlew clean build && cd ../..
+cd src/payment-service && ./gradlew clean build && cd ../..
+cd src/notification-service && ./gradlew clean build && cd ../..
 ```
 
 ### Step 2: Configure Environment Variables
