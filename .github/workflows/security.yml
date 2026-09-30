@@ -52,7 +52,7 @@ jobs:
           cache: gradle
       - name: Setup Gradle
         if: matrix.language == 'java-kotlin'
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v5
       - name: Compile all services for CodeQL
         if: matrix.language == 'java-kotlin'
         run: |
