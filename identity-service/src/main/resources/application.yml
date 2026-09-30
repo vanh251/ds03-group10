@@ -1,0 +1,39 @@
+server:
+  port: ${SERVER_PORT:8081}
+
+spring:
+  application:
+    name: identity-service
+
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/identity_db}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: ${JPA_DDL_AUTO:update}
+    open-in-view: false
+
+jwt:
+  secret: ${JWT_SECRET:dGhpc19pc19hX3Zlcnlfc2VjdXJlX2tleV9mb3JfaHMyNTZfamF2YV9zcHJpbmdfYm9vdF9kczAzX3JpZGVfaGFpbGluZw==}
+  expiration-ms: ${JWT_EXPIRATION_MS:86400000}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: always
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+
+logging:
+  level:
+    root: INFO
+    org.springframework: INFO

@@ -1,0 +1,21 @@
+# Environment variables
+.env
+
+# Gradle build outputs & caches
+.gradle/
+build/
+bin/
+out/
+!gradle/wrapper/gradle-wrapper.jar
+
+# IDE specific files
+.idea/
+*.iml
+.vscode/
+.DS_Store
+
+# Logs
+*.log
+
+# Docker data
+*.data

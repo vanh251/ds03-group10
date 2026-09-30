@@ -1,0 +1,44 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'api-gateway'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['api-gateway:8080']
+
+  - job_name: 'identity-service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['identity-service:8081']
+
+  - job_name: 'driver-service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['driver-service:8082']
+
+  - job_name: 'trip-service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['trip-service:8083']
+
+  - job_name: 'matching-service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['matching-service:8084']
+
+  - job_name: 'pricing-service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['pricing-service:8085']
+
+  - job_name: 'payment-service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['payment-service:8086']
+
+  - job_name: 'notification-service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['notification-service:8087']

@@ -1,0 +1,394 @@
+services:
+  # ========================================================
+  # INFRASTRUCTURE: DATABASES (Database-per-service pattern)
+  # ========================================================
+  identity-db:
+    image: postgres:16-alpine
+    container_name: identity-db
+    environment:
+      POSTGRES_DB: identity_db
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_secure_password_123}
+    volumes:
+      - identity_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d identity_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ride-hailing-network
+
+  driver-db:
+    image: postgres:16-alpine
+    container_name: driver-db
+    environment:
+      POSTGRES_DB: driver_db
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_secure_password_123}
+    volumes:
+      - driver_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d driver_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ride-hailing-network
+
+  trip-db:
+    image: postgres:16-alpine
+    container_name: trip-db
+    environment:
+      POSTGRES_DB: trip_db
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_secure_password_123}
+    volumes:
+      - trip_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d trip_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ride-hailing-network
+
+  matching-db:
+    image: postgres:16-alpine
+    container_name: matching-db
+    environment:
+      POSTGRES_DB: matching_db
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_secure_password_123}
+    volumes:
+      - matching_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d matching_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ride-hailing-network
+
+  payment-db:
+    image: postgres:16-alpine
+    container_name: payment-db
+    environment:
+      POSTGRES_DB: payment_db
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_secure_password_123}
+    volumes:
+      - payment_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d payment_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ride-hailing-network
+
+  # ========================================================
+  # INFRASTRUCTURE: MESSAGE BROKER (Apache Kafka KRaft mode)
+  # ========================================================
+  kafka:
+    image: apache/kafka:3.8.0
+    container_name: kafka
+    user: root
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: 'broker,controller'
+      KAFKA_LISTENERS: 'PLAINTEXT://:9092,CONTROLLER://:9093'
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://kafka:9092'
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT'
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@localhost:9093'
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_LOG_DIRS: '/tmp/kraft-combined-logs'
+      CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
+    volumes:
+      - kafka_data:/tmp/kraft-combined-logs
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+    networks:
+      - ride-hailing-network
+
+  # ========================================================
+  # INFRASTRUCTURE: MONITORING (Prometheus + Grafana)
+  # ========================================================
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./deploy/monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --tries=1 --spider http://localhost:9090/-/healthy || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - ride-hailing-network
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: grafana
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin_secure_password_123}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./deploy/monitoring/grafana/provisioning/datasources/prometheus.yml:/etc/grafana/provisioning/datasources/prometheus.yml:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - ride-hailing-network
+
+  # ========================================================
+  # APPLICATION: CORE MICROSERVICES (Independent Gradle)
+  # ========================================================
+  identity-service:
+    build:
+      context: ./identity-service
+      dockerfile: Dockerfile
+    container_name: identity-service
+    expose:
+      - "8081"
+    environment:
+      SERVER_PORT: 8081
+      SPRING_DATASOURCE_URL: jdbc:postgresql://identity-db:5432/identity_db
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-postgres_secure_password_123}
+      JWT_SECRET: ${JWT_SECRET:-dGhpc19pc19hX3Zlcnlfc2VjdXJlX2tleV9mb3JfaHMyNTZfamF2YV9zcHJpbmdfYm9vdF9kczAzX3JpZGVfaGFpbGluZw==}
+      JWT_EXPIRATION_MS: ${JWT_EXPIRATION_MS:-86400000}
+    depends_on:
+      identity-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8081/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - ride-hailing-network
+
+  driver-service:
+    build:
+      context: ./driver-service
+      dockerfile: Dockerfile
+    container_name: driver-service
+    expose:
+      - "8082"
+    environment:
+      SERVER_PORT: 8082
+      SPRING_DATASOURCE_URL: jdbc:postgresql://driver-db:5432/driver_db
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-postgres_secure_password_123}
+    depends_on:
+      driver-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8082/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - ride-hailing-network
+
+  trip-service:
+    build:
+      context: ./trip-service
+      dockerfile: Dockerfile
+    container_name: trip-service
+    expose:
+      - "8083"
+    environment:
+      SERVER_PORT: 8083
+      SPRING_DATASOURCE_URL: jdbc:postgresql://trip-db:5432/trip_db
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-postgres_secure_password_123}
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    depends_on:
+      trip-db:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8083/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - ride-hailing-network
+
+  matching-service:
+    build:
+      context: ./matching-service
+      dockerfile: Dockerfile
+    container_name: matching-service
+    expose:
+      - "8084"
+    environment:
+      SERVER_PORT: 8084
+      SPRING_DATASOURCE_URL: jdbc:postgresql://matching-db:5432/matching_db
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-postgres_secure_password_123}
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      DRIVER_SERVICE_URL: http://driver-service:8082
+    depends_on:
+      matching-db:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      driver-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8084/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - ride-hailing-network
+
+  pricing-service:
+    build:
+      context: ./pricing-service
+      dockerfile: Dockerfile
+    container_name: pricing-service
+    expose:
+      - "8085"
+    environment:
+      SERVER_PORT: 8085
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8085/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - ride-hailing-network
+
+  payment-service:
+    build:
+      context: ./payment-service
+      dockerfile: Dockerfile
+    container_name: payment-service
+    expose:
+      - "8086"
+    environment:
+      SERVER_PORT: 8086
+      SPRING_DATASOURCE_URL: jdbc:postgresql://payment-db:5432/payment_db
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-postgres_secure_password_123}
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    depends_on:
+      payment-db:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8086/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - ride-hailing-network
+
+  notification-service:
+    build:
+      context: ./notification-service
+      dockerfile: Dockerfile
+    container_name: notification-service
+    expose:
+      - "8087"
+    environment:
+      SERVER_PORT: 8087
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    depends_on:
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8087/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - ride-hailing-network
+
+  # ========================================================
+  # APPLICATION: API GATEWAY (Spring Cloud Gateway)
+  # ========================================================
+  api-gateway:
+    build:
+      context: ./api-gateway
+      dockerfile: Dockerfile
+    container_name: api-gateway
+    ports:
+      - "${GATEWAY_PORT:-8080}:8080"
+    environment:
+      SERVER_PORT: 8080
+      IDENTITY_SERVICE_URL: http://identity-service:8081
+      DRIVER_SERVICE_URL: http://driver-service:8082
+      TRIP_SERVICE_URL: http://trip-service:8083
+      MATCHING_SERVICE_URL: http://matching-service:8084
+      PRICING_SERVICE_URL: http://pricing-service:8085
+      PAYMENT_SERVICE_URL: http://payment-service:8086
+      NOTIFICATION_SERVICE_URL: http://notification-service:8087
+    depends_on:
+      identity-service:
+        condition: service_healthy
+      driver-service:
+        condition: service_healthy
+      trip-service:
+        condition: service_healthy
+      matching-service:
+        condition: service_healthy
+      pricing-service:
+        condition: service_healthy
+      payment-service:
+        condition: service_healthy
+      notification-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - ride-hailing-network
+
+# ========================================================
+# NETWORKS & VOLUMES
+# ========================================================
+networks:
+  ride-hailing-network:
+    name: ride-hailing-network
+    driver: bridge
+
+volumes:
+  identity_db_data:
+  driver_db_data:
+  trip_db_data:
+  matching_db_data:
+  payment_db_data:
+  kafka_data:
+  prometheus_data:
+  grafana_data:
