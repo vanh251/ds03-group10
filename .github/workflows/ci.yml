@@ -1,0 +1,165 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop]
+  workflow_dispatch:
+
+# Cancel redundant runs on the same ref
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  JAVA_VERSION: "17"
+
+jobs:
+  # ============================================================
+  # JOB 1: Validate Docker Compose config (fast, no build needed)
+  # ============================================================
+  validate-compose:
+    name: Validate Docker Compose
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate docker-compose.yml syntax
+        run: docker compose config -q
+
+  # ============================================================
+  # JOB 2: Build & Test each service in parallel (matrix)
+  # Each service is an independent Gradle project under src/<service>
+  # ============================================================
+  build-test:
+    name: Build & Test (${{ matrix.service }})
+    needs: validate-compose
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false   # continue other services even if one fails
+      matrix:
+        service:
+          - api-gateway
+          - identity-service
+          - driver-service
+          - trip-service
+          - matching-service
+          - pricing-service
+          - payment-service
+          - notification-service
+
+    defaults:
+      run:
+        working-directory: src/${{ matrix.service }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: gradle
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Validate Gradle wrapper
+        uses: gradle/actions/wrapper-validation@v4
+
+      - name: Build and unit test
+        run: ./gradlew clean test --no-daemon --parallel
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports-${{ matrix.service }}-${{ github.run_number }}
+          path: |
+            src/${{ matrix.service }}/build/test-results/**
+            src/${{ matrix.service }}/build/reports/tests/**
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # ============================================================
+  # JOB 3: Integration — spin up real DBs + Kafka via Compose
+  # Runs only after ALL services have passed unit tests
+  # ============================================================
+  integration:
+    name: Integration (infra smoke test)
+    needs: build-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start infrastructure (DBs + Kafka)
+        run: |
+          docker compose up -d \
+            identity-db driver-db trip-db matching-db payment-db \
+            kafka
+
+      - name: Wait for infrastructure to be healthy
+        run: |
+          echo "Waiting for all DB containers to be healthy..."
+          timeout 60 bash -c '
+            services="identity-db driver-db trip-db matching-db payment-db kafka"
+            for svc in $services; do
+              until [ "$(docker inspect --format="{{.State.Health.Status}}" $svc 2>/dev/null)" = "healthy" ]; do
+                echo "  Waiting for $svc..."
+                sleep 3
+              done
+              echo "  $svc is healthy"
+            done
+          '
+
+      - name: Show infrastructure status
+        run: docker compose ps
+
+      - name: Verify Kafka broker is reachable
+        run: |
+          docker compose exec -T kafka \
+            /opt/kafka/bin/kafka-broker-api-versions.sh \
+            --bootstrap-server localhost:9092 > /dev/null
+
+      - name: Collect logs on failure
+        if: failure()
+        run: docker compose logs --no-color > integration-docker.log || true
+
+      - name: Upload logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-logs-${{ github.run_number }}
+          path: integration-docker.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Shutdown
+        if: always()
+        run: docker compose down -v
+
+  # ============================================================
+  # JOB 4: Summary gate — single required status check for branch protection
+  # ============================================================
+  ci-passed:
+    name: CI Passed
+    needs: [validate-compose, build-test, integration]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Check all jobs passed
+        run: |
+          if [[ "${{ needs.validate-compose.result }}" != "success" ]] || \
+             [[ "${{ needs.build-test.result }}" != "success" ]] || \
+             [[ "${{ needs.integration.result }}" != "success" ]]; then
+            echo "One or more jobs failed"
+            exit 1
+          fi
+          echo "All CI jobs passed"

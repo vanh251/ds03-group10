@@ -1,0 +1,103 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version, e.g. v1.0.0"
+        required: true
+        type: string
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  JAVA_VERSION: "17"
+
+jobs:
+  # ============================================================
+  # Build all services and collect JARs
+  # ============================================================
+  verify:
+    name: Build & Verify (${{ matrix.service }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: true
+      matrix:
+        service:
+          - api-gateway
+          - identity-service
+          - driver-service
+          - trip-service
+          - matching-service
+          - pricing-service
+          - payment-service
+          - notification-service
+
+    defaults:
+      run:
+        working-directory: src/${{ matrix.service }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: gradle
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build (skip tests for release — already verified by CI)
+        run: ./gradlew clean build -x test --no-daemon
+
+      - name: Upload JAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: jar-${{ matrix.service }}-${{ github.sha }}
+          path: src/${{ matrix.service }}/build/libs/*.jar
+          if-no-files-found: error
+          retention-days: 30
+
+  # ============================================================
+  # Create GitHub Release with all JARs attached
+  # ============================================================
+  github-release:
+    name: GitHub Release
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all JARs
+        uses: actions/download-artifact@v4
+        with:
+          pattern: jar-*-${{ github.sha }}
+          merge-multiple: true
+          path: release-artifacts
+
+      - name: List artifacts
+        run: ls -lh release-artifacts/
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            TAG="${GITHUB_REF_NAME}"
+          else
+            TAG="${{ inputs.version }}"
+          fi
+          gh release create "$TAG" release-artifacts/*.jar \
+            --title "Ride-Hailing Microservices $TAG" \
+            --generate-notes
