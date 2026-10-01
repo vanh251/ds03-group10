@@ -11,6 +11,7 @@ on:
 permissions:
   contents: read
   security-events: write
+  actions: read
 
 concurrency:
   group: security-${{ github.ref }}
@@ -39,7 +40,7 @@ jobs:
         language: [java-kotlin, actions]
     steps:
       - uses: actions/checkout@v4
-      - uses: github/codeql-action/init@v3
+      - uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
           queries: security-extended
@@ -61,6 +62,6 @@ jobs:
             echo "=== Compiling $svc ==="
             (cd src/$svc && ./gradlew classes --no-daemon) || true
           done
-      - uses: github/codeql-action/analyze@v3
+      - uses: github/codeql-action/analyze@v4
         with:
           category: "/language:${{ matrix.language }}"
