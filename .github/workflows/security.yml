@@ -2,8 +2,14 @@ name: Security
 on:
   pull_request:
     branches: [develop, main]
+    paths:
+      - 'src/**'
+      - '.github/workflows/**'
   push:
     branches: [develop, main]
+    paths:
+      - 'src/**'
+      - '.github/workflows/**'
   schedule:
     - cron: "17 2 * * 1"
   workflow_dispatch:
@@ -32,7 +38,7 @@ jobs:
           fail-on-severity: moderate
 
   codeql:
-    name: CodeQL
+    name: CodeQL (${{ matrix.language }})
     runs-on: ubuntu-latest
     timeout-minutes: 25
     strategy:
@@ -41,10 +47,14 @@ jobs:
         language: [java-kotlin, actions]
     steps:
       - uses: actions/checkout@v4
-      - uses: github/codeql-action/init@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
-          queries: security-extended
+          # PR chạy bộ quy tắc tiêu chuẩn để kiểm tra nhanh; chỉ quét sâu (security-extended) khi push/schedule
+          queries: ${{ github.event_name == 'pull_request' && 'default' || 'security-extended' }}
+
       - name: Setup Java
         if: matrix.language == 'java-kotlin'
         uses: actions/setup-java@v4
@@ -52,18 +62,22 @@ jobs:
           distribution: temurin
           java-version: "17"
           cache: gradle
+
       - name: Setup Gradle
         if: matrix.language == 'java-kotlin'
         uses: gradle/actions/setup-gradle@v4
+
       - name: Compile all services for CodeQL
         if: matrix.language == 'java-kotlin'
         run: |
           for svc in api-gateway identity-service driver-service trip-service \
                      matching-service pricing-service payment-service notification-service; do
             echo "=== Compiling $svc ==="
-            (cd src/$svc && ./gradlew classes --no-daemon) || true
+            (cd src/$svc && ./gradlew classes -x test --build-cache) || true
           done
-      - uses: github/codeql-action/analyze@v4
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v4
         with:
           category: "/language:${{ matrix.language }}"
           # Với repo Private không có bản quyền GHAS, không upload lên GitHub API để tránh lỗi Code scanning is not enabled
