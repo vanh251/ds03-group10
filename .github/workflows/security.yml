@@ -20,7 +20,8 @@ concurrency:
 jobs:
   dependency-review:
     name: Dependency Review
-    if: github.event_name == 'pull_request'
+    # Chỉ chạy trên repo Public (repo Private yêu cầu bản quyền GitHub Advanced Security trả phí)
+    if: github.event_name == 'pull_request' && github.repository.private == false
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -65,3 +66,15 @@ jobs:
       - uses: github/codeql-action/analyze@v4
         with:
           category: "/language:${{ matrix.language }}"
+          # Với repo Private không có bản quyền GHAS, không upload lên GitHub API để tránh lỗi Code scanning is not enabled
+          upload: ${{ github.repository.private && 'never' || 'always' }}
+          output: sarif-results
+
+      - name: Upload CodeQL SARIF artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: codeql-sarif-${{ matrix.language }}
+          path: sarif-results
+          if-no-files-found: ignore
+          retention-days: 7
