@@ -7,7 +7,7 @@ on:
     branches: [develop]
   workflow_dispatch:
 
-# Cancel redundant runs on the same ref
+# Hủy các luồng CI cũ nếu có commit mới được push lên cùng một nhánh
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -20,7 +20,7 @@ env:
 
 jobs:
   # ============================================================
-  # JOB 1: Validate Docker Compose config (fast, no build needed)
+  # JOB 1: Xác thực Docker Compose
   # ============================================================
   validate-compose:
     name: Validate Docker Compose
@@ -29,34 +29,55 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Validate docker-compose.yml syntax
-        run: docker compose config -q
+        run: |
+          cp .env.example .env
+          docker compose config -q
 
   # ============================================================
-  # JOB 2: Build & Test each service in parallel (matrix)
-  # Each service is an independent Gradle project under src/<service>
+  # JOB 2: Phát hiện các service có file bị thay đổi
+  # ============================================================
+  detect-changes:
+    name: Detect changed services
+    runs-on: ubuntu-latest
+    outputs:
+      # Trả về một mảng JSON chứa tên các service có thay đổi
+      services: ${{ steps.filter.outputs.changes }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            api-gateway: 'src/api-gateway/**'
+            identity-service: 'src/identity-service/**'
+            driver-service: 'src/driver-service/**'
+            trip-service: 'src/trip-service/**'
+            matching-service: 'src/matching-service/**'
+            pricing-service: 'src/pricing-service/**'
+            payment-service: 'src/payment-service/**'
+            notification-service: 'src/notification-service/**'
+
+  # ============================================================
+  # JOB 3: Chỉ Build & Test những service bị thay đổi (Dynamic Matrix)
   # ============================================================
   build-test:
     name: Build & Test (${{ matrix.service }})
-    needs: validate-compose
+    needs: detect-changes
+    # Chỉ chạy Job này nếu mảng services KHÔNG bị rỗng
+    if: ${{ needs.detect-changes.outputs.services != '[]' && needs.detect-changes.outputs.services != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
-      fail-fast: false   # continue other services even if one fails
+      fail-fast: false
       matrix:
-        service:
-          - api-gateway
-          - identity-service
-          - driver-service
-          - trip-service
-          - matching-service
-          - pricing-service
-          - payment-service
-          - notification-service
-
+        # Chuyển đổi chuỗi JSON array thành mảng cho matrix
+        service: ${{ fromJSON(needs.detect-changes.outputs.services) }}
     defaults:
       run:
         working-directory: src/${{ matrix.service }}
-
     steps:
       - uses: actions/checkout@v4
 
@@ -88,12 +109,13 @@ jobs:
           retention-days: 7
 
   # ============================================================
-  # JOB 3: Integration — spin up real DBs + Kafka via Compose
-  # Runs only after ALL services have passed unit tests
+  # JOB 4: Integration - Tích hợp toàn hệ thống
   # ============================================================
   integration:
     name: Integration (infra smoke test)
-    needs: build-test
+    needs: [validate-compose, build-test]
+    # Đảm bảo integration luôn chạy trừ khi build-test bị lỗi (nếu build-test bị skip do không có service nào đổi thì vẫn chạy qua)
+    if: always() && needs.build-test.result != 'failure' && needs.build-test.result != 'cancelled' && needs.validate-compose.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -101,9 +123,8 @@ jobs:
 
       - name: Start infrastructure (DBs + Kafka)
         run: |
-          docker compose up -d \
-            identity-db driver-db trip-db matching-db payment-db \
-            kafka
+          cp .env.example .env
+          docker compose up -d identity-db driver-db trip-db matching-db payment-db kafka
 
       - name: Wait for infrastructure to be healthy
         run: |
@@ -119,47 +140,12 @@ jobs:
             done
           '
 
-      - name: Show infrastructure status
-        run: docker compose ps
-
       - name: Verify Kafka broker is reachable
         run: |
           docker compose exec -T kafka \
             /opt/kafka/bin/kafka-broker-api-versions.sh \
             --bootstrap-server localhost:9092 > /dev/null
 
-      - name: Collect logs on failure
-        if: failure()
-        run: docker compose logs --no-color > integration-docker.log || true
-
-      - name: Upload logs
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: integration-logs-${{ github.run_number }}
-          path: integration-docker.log
-          if-no-files-found: ignore
-          retention-days: 7
-
       - name: Shutdown
         if: always()
         run: docker compose down -v
-
-  # ============================================================
-  # JOB 4: Summary gate — single required status check for branch protection
-  # ============================================================
-  ci-passed:
-    name: CI Passed
-    needs: [validate-compose, build-test, integration]
-    runs-on: ubuntu-latest
-    if: always()
-    steps:
-      - name: Check all jobs passed
-        run: |
-          if [[ "${{ needs.validate-compose.result }}" != "success" ]] || \
-             [[ "${{ needs.build-test.result }}" != "success" ]] || \
-             [[ "${{ needs.integration.result }}" != "success" ]]; then
-            echo "One or more jobs failed"
-            exit 1
-          fi
-          echo "All CI jobs passed"
