@@ -1,0 +1,14 @@
+{
+  "pickup": {
+    "latitude": 10.776889,
+    "longitude": 106.700806,
+    "address": "Notre-Dame Cathedral, District 1, HCMC"
+  },
+  "destination": {
+    "latitude": 10.730389,
+    "longitude": 106.707528,
+    "address": "Crescent Mall, District 7, HCMC"
+  },
+  "distanceKm": 6.8,
+  "durationMin": 22
+}
