@@ -2,7 +2,7 @@
 
 ## Ride-Hailing Microservices System – DS03
 
-> **Version:** 1.1 (Aligned with Architecture, Database Schema, SRS & Events Contract)
+> **Version:** 1.2 (Aligned with Architecture, Database Schema, SRS, Events Contract & OpenAPI/Swagger UI Standards)
 > **Project:** Ride-Hailing Microservices System – Simulating Grab/Uber
 > **Team:** DS03
 > **Language:** Java 17
@@ -11,6 +11,7 @@
 > **Database:** PostgreSQL 16 (Database-per-service, 5 DB instances)
 > **Message Broker:** Apache Kafka 3.8.0 (KRaft mode)
 > **Containerization:** Docker & Docker Compose
+> **API Documentation:** Springdoc OpenAPI 3.x & Swagger UI (Per-service isolated)
 > **Monitoring & Observability:** Spring Boot Actuator, Micrometer, Prometheus, Grafana
 
 ---
@@ -80,19 +81,24 @@ Hệ thống mô phỏng nền tảng đặt xe công nghệ (Grab/Uber) gồm A
 
 ## 2.1. Service Ports & Persistence Mapping
 
-| Service Name | Port (Docker internal) | Port (Host publish) | Database / Persistence | Message Broker Role |
+| Service Name | Port (Docker internal) | Port (Host publish - Swagger UI & Debug) | Database / Persistence | Message Broker Role |
 |---|---|---|---|---|
 | **api-gateway** | `8080` | `8080` | Không có | Không |
-| **identity-service** | `8081` | Internal only | PostgreSQL (`identity_db`) | Không |
-| **driver-service** | `8082` | Internal only | PostgreSQL (`driver_db`) | Không |
-| **trip-service** | `8083` | Internal only | PostgreSQL (`trip_db`) | Kafka (Producer + Consumer) |
-| **matching-service** | `8084` | Internal only | PostgreSQL (`matching_db`) | Kafka (Producer + Consumer) |
-| **pricing-service** | `8085` | Internal only | **Không có (Stateless)** | Không |
-| **payment-service** | `8086` | Internal only | PostgreSQL (`payment_db`) | Kafka (Producer + Consumer) |
-| **notification-service**| `8087` | Internal only | **Không có (Stateless)** | Kafka (Consumer only) |
+| **identity-service** | `8081` | `8081` | PostgreSQL (`identity_db`) | Không |
+| **driver-service** | `8082` | `8082` | PostgreSQL (`driver_db`) | Không |
+| **trip-service** | `8083` | `8083` | PostgreSQL (`trip_db`) | Kafka (Producer + Consumer) |
+| **matching-service** | `8084` | `8084` | PostgreSQL (`matching_db`) | Kafka (Producer + Consumer) |
+| **pricing-service** | `8085` | `8085` | **Không có (Stateless)** | Không |
+| **payment-service** | `8086` | `8086` | PostgreSQL (`payment_db`) | Kafka (Producer + Consumer) |
+| **notification-service**| `8087` | `8087` | **Không có (Stateless)** | Kafka (Consumer only) |
 | **Kafka (KRaft)** | `9092` | Internal only | Volume (`kafka_data`) | Self |
 | **Prometheus** | `9090` | `9090` | Volume (`prometheus_data`) | Scrape Actuator metrics |
 | **Grafana** | `3000` | `3000` | Volume (`grafana_data`) | Visualization dashboard |
+
+> **Lưu ý Host Ports:**  
+> Các microservice publish ports `8081`–`8087` lên máy host để developer có thể truy cập trực tiếp **Swagger UI** (`http://localhost:<port>/swagger-ui/index.html`) và debug độc lập từng service.  
+> Tuy nhiên, khi các container giao tiếp với nhau trong Docker network, **bắt buộc** dùng Docker DNS (ví dụ: `http://driver-service:8082`), không được dùng `localhost`.
+
 
 ---
 
@@ -409,6 +415,78 @@ Không đặt logic nghiệp vụ phức tạp trong DTO.
 
 ---
 
+## 6.4. OpenAPI Schema Annotation Convention (@Schema)
+
+Tất cả Request DTO và Response DTO **bắt buộc** phải được annotate đầy đủ bằng Swagger/OpenAPI annotations:
+
+1. **Ở cấp Class:** Phải có `@Schema(description = "...")` mô tả mục đích của DTO.
+2. **Ở cấp Field:** Mỗi field cần có `@Schema` với:
+   * `description`: Ý nghĩa rõ ràng của trường dữ liệu.
+   * `example`: Dữ liệu mẫu thực tế, đúng định dạng và ngữ cảnh nghiệp vụ.
+3. **Ràng buộc Validation:** Các validation annotation (`@NotNull`, `@NotBlank`, `@Email`, `@Size`, `@Min`, `@Max`, `@Positive`, v.v.) phải đi kèm để Swagger UI tự động nhận diện field `required` và `constraints`.
+4. **Quy tắc bảo mật dữ liệu mẫu:**
+   * UUID: Dùng format chuẩn RFC-4122 (ví dụ: `"550e8400-e29b-41d4-a716-446655440000"`).
+   * Timestamp: Dùng format ISO-8601 UTC (ví dụ: `"2026-10-03T10:00:00Z"`).
+   * **Tuyệt đối không** đưa password thật, JWT secret, private key hoặc dữ liệu nhạy cảm vào ví dụ mẫu (`example`).
+   * Không bao giờ tạo field `password` hay `passwordHash` trong **Response DTO**.
+
+### Ví dụ chuẩn cho Request DTO:
+
+```java
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+@Schema(description = "Request payload to create a new ride trip")
+public class CreateTripRequest {
+
+    @Schema(description = "ID of the passenger requesting the ride", example = "550e8400-e29b-41d4-a716-446655440000")
+    @NotNull(message = "Passenger ID is required")
+    private UUID passengerId;
+
+    @Schema(description = "Pickup location details")
+    @NotNull(message = "Pickup location is required")
+    @Valid
+    private LocationDto pickupLocation;
+
+    @Schema(description = "Dropoff destination details")
+    @NotNull(message = "Dropoff location is required")
+    @Valid
+    private LocationDto dropoffLocation;
+}
+```
+
+### Ví dụ chuẩn cho Response DTO:
+
+```java
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+@JsonInclude(JsonInclude.Include.NON_NULL)
+@Schema(description = "Response containing trip lifecycle information")
+public class TripResponse {
+
+    @Schema(description = "Unique trip identifier", example = "550e8400-e29b-41d4-a716-446655440001")
+    private UUID id;
+
+    @Schema(description = "Current trip status", example = "SEARCHING")
+    private TripStatus status;
+
+    @Schema(description = "Assigned driver ID (null if still searching)", example = "550e8400-e29b-41d4-a716-446655440002")
+    private UUID driverId;
+
+    @Schema(description = "Calculated trip fare in VND", example = "45000.0")
+    private BigDecimal fare;
+
+    @Schema(description = "Creation timestamp", example = "2026-10-03T10:00:00Z")
+    private Instant createdAt;
+}
+```
+
+---
+
 # 7. Controller Convention
 
 Controller chỉ chịu trách nhiệm:
@@ -447,6 +525,81 @@ public TripResponse createTrip(
         @Valid @RequestBody CreateTripRequest request) {
 
     return tripService.createTrip(request);
+}
+```
+
+---
+
+## 7.1. OpenAPI / Swagger Annotations Convention
+
+Tất cả REST Controller **bắt buộc** phải khai báo đầy đủ các OpenAPI 3.x annotations để Swagger UI hiển thị thông tin chính xác, cho phép test trực tiếp và tài liệu hóa chuẩn chỉ:
+
+### 1. Ở cấp Controller Class:
+* `@Tag(name = "...", description = "...")`: Gom nhóm endpoint theo domain nghiệp vụ. Tên tag phải rõ ràng (ví dụ: `Trips`, `Matching`, `Pricing`, `Payments`, `Notifications`, `Authentication`, `Drivers`), tuyệt đối không dùng tên vô nghĩa như `Controller`, `Demo`, `Test`.
+* `@SecurityRequirement(name = "bearerAuth")`: Đặt ở class level nếu toàn bộ endpoint trong Controller yêu cầu JWT Bearer Token, hoặc đặt ở từng method được bảo vệ.
+* **Public APIs** (ví dụ: `/api/auth/register`, `/api/auth/login`): **Không** gắn `@SecurityRequirement`.
+
+### 2. Ở cấp Method / Endpoint:
+* `@Operation(summary = "...", description = "...")`:
+  * `summary`: Tóm tắt ngắn gọn hành động (ví dụ: `"Create a trip"`).
+  * `description`: Mô tả chi tiết hành vi, luồng xử lý hoặc điều kiện tiên quyết.
+* `@ApiResponses({ ... })`: Phải liệt kê đầy đủ các status code mà endpoint có thể trả về:
+  * `200` / `201` / `202`: Kèm `content = @Content(schema = @Schema(implementation = <ResponseDTO>.class))`
+  * `400`: Invalid request payload hoặc validation failed (kèm `ErrorResponse.class`)
+  * `401`: Unauthorized nếu thiếu hoặc sai JWT token
+  * `403`: Forbidden nếu không đủ quyền
+  * `404`: Resource not found (kèm `ErrorResponse.class`)
+  * `409`: Conflict / Optimistic lock mismatch / Trạng thái không hợp lệ (kèm `ErrorResponse.class`)
+  * Không document các status code mà API không bao giờ trả về.
+
+### 3. Ở cấp Parameter:
+* `@Parameter(description = "...", example = "...")`: Bắt buộc cho các tham số `@PathVariable`, `@RequestParam`, `@RequestHeader` (ví dụ: `X-Correlation-ID`, `X-Idempotency-Key`).
+
+### Ví dụ chuẩn Controller hoàn chỉnh:
+
+```java
+@RestController
+@RequestMapping("/api/trips")
+@RequiredArgsConstructor
+@Tag(name = "Trips", description = "Trip lifecycle management APIs")
+@SecurityRequirement(name = "bearerAuth")
+public class TripController {
+
+    private final TripService tripService;
+
+    @Operation(summary = "Create a trip", description = "Creates a new ride request and initializes trip searching")
+    @ApiResponses({
+            @ApiResponse(responseCode = "201", description = "Trip created successfully",
+                    content = @Content(schema = @Schema(implementation = TripResponse.class))),
+            @ApiResponse(responseCode = "400", description = "Invalid request payload",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "401", description = "Unauthorized - Missing or invalid JWT"),
+            @ApiResponse(responseCode = "409", description = "Passenger already has an active trip",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    @PostMapping
+    public ResponseEntity<TripResponse> createTrip(
+            @Valid @RequestBody CreateTripRequest request) {
+
+        TripResponse response = tripService.createTrip(request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @Operation(summary = "Get trip by ID", description = "Retrieves trip details by its unique identifier")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Trip found",
+                    content = @Content(schema = @Schema(implementation = TripResponse.class))),
+            @ApiResponse(responseCode = "404", description = "Trip not found",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    @GetMapping("/{id}")
+    public ResponseEntity<TripResponse> getTrip(
+            @Parameter(description = "Unique trip ID", example = "550e8400-e29b-41d4-a716-446655440001")
+            @PathVariable UUID id) {
+
+        TripResponse response = tripService.getTrip(id);
+        return ResponseEntity.ok(response);
+    }
 }
 ```
 
@@ -722,6 +875,105 @@ Sử dụng status code đúng ngữ nghĩa:
 
 * **Phản hồi thành công (2xx):** Trả về trực tiếp Resource Payload (hoặc Collection), **không bọc** trong envelope `{ "data": ... }`.
 * **Phản hồi lỗi (4xx, 5xx):** Bắt buộc tuân theo format chuẩn tại [Mục 16](#16-error-response).
+
+---
+
+## 13.6. Swagger UI & OpenAPI 3.x Standards
+
+Hệ thống tích hợp **Springdoc OpenAPI 3.x** trên toàn bộ các microservices để phục vụ tài liệu hóa, integration testing và gỡ lỗi API trực tiếp trên giao diện Swagger UI.
+
+### 13.6.1. Nguyên tắc kiến trúc Swagger UI
+* **Mỗi service sở hữu Swagger UI độc lập:** Mỗi microservice tự build và expose Swagger UI trên cổng dịch vụ của mình. Tuyệt đối không biến API Gateway thành nơi tập trung duy nhất nếu làm thay đổi kiến trúc routing.
+* **Danh sách Endpoint tài liệu & cổng truy cập Host:**
+  * **identity-service:** `http://localhost:8081/swagger-ui/index.html` (JSON: `http://localhost:8081/v3/api-docs`)
+  * **driver-service:** `http://localhost:8082/swagger-ui/index.html` (JSON: `http://localhost:8082/v3/api-docs`)
+  * **trip-service:** `http://localhost:8083/swagger-ui/index.html` (JSON: `http://localhost:8083/v3/api-docs`)
+  * **matching-service:** `http://localhost:8084/swagger-ui/index.html` (JSON: `http://localhost:8084/v3/api-docs`)
+  * **pricing-service:** `http://localhost:8085/swagger-ui/index.html` (JSON: `http://localhost:8085/v3/api-docs`)
+  * **payment-service:** `http://localhost:8086/swagger-ui/index.html` (JSON: `http://localhost:8086/v3/api-docs`)
+  * **notification-service:** `http://localhost:8087/swagger-ui/index.html` (JSON: `http://localhost:8087/v3/api-docs`)
+* **Không hardcode port:** Port phải được load từ cấu hình môi trường `${SERVER_PORT}` trong `application.yml`.
+
+### 13.6.2. Dependency chuẩn (Gradle)
+Tất cả các service sử dụng duy nhất dependency Springdoc chính thức tương thích Spring Boot 3.x / 4.x và Java 17:
+
+```groovy
+dependencies {
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.5'
+}
+```
+
+> **Tuyệt đối cấm:** Sử dụng thư viện cũ lỗi thời như `springfox-swagger2`, `springfox-swagger-ui` hoặc Swagger 2.x.
+
+### 13.6.3. Metadata & Cấu hình OpenApiConfig.java
+Mỗi service bắt buộc phải có file cấu hình đặt tại package `config/OpenApiConfig.java`:
+
+```java
+@Configuration
+public class OpenApiConfig {
+
+    private static final String SECURITY_SCHEME_NAME = "bearerAuth";
+
+    @Bean
+    public OpenAPI customOpenAPI() {
+        return new OpenAPI()
+                .info(new Info()
+                        .title("DS03 Trip Service API") // Format: DS03 <Tên Service> API
+                        .description("REST API for trip lifecycle management.")
+                        .version("1.0.0")
+                        .contact(new Contact()
+                                .name("DS03 Microservices Team")
+                                .email("team@ds03.example.com"))
+                        .license(new License()
+                                .name("Apache 2.0")
+                                .url("https://www.apache.org/licenses/LICENSE-2.0")))
+                .addSecurityItem(new SecurityRequirement().addList(SECURITY_SCHEME_NAME))
+                .components(new Components()
+                        .addSecuritySchemes(SECURITY_SCHEME_NAME,
+                                new SecurityScheme()
+                                        .name(SECURITY_SCHEME_NAME)
+                                        .type(SecurityScheme.Type.HTTP)
+                                        .scheme("bearer")
+                                        .bearerFormat("JWT")
+                                        .description("Enter JWT Bearer token to authorize requests.")));
+    }
+}
+```
+
+* **Tiêu chuẩn Title:** `DS03 <Service Name> API` (Ví dụ: `DS03 Identity Service API`, `DS03 Driver Service API`, `DS03 Trip Service API`, v.v.). Không đặt tên chung chung như `Test API`, `Demo API`, `Swagger API`.
+* **Security Scheme:** Bắt buộc đăng ký `bearerAuth` (`HTTP Bearer JWT`). Swagger UI sẽ hiển thị nút **Authorize**, cho phép developer nhập JWT token để tự động gửi header `Authorization: Bearer <token>` khi test các API được bảo vệ.
+
+### 13.6.4. Cấu hình application.yml
+Mỗi service khai báo cấu hình đường dẫn chuẩn trong `application.yml`:
+
+```yaml
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+```
+
+### 13.6.5. Tương thích Spring Security
+Nếu service có Spring Security kích hoạt (`identity-service` hoặc các service protected khác):
+* Endpoint Swagger **phải** được cấp quyền truy cập công khai (`permitAll()`):
+  ```java
+  .requestMatchers(
+      "/actuator/**",
+      "/api/auth/**",
+      "/swagger-ui/**",
+      "/swagger-ui.html",
+      "/v3/api-docs/**"
+  ).permitAll()
+  ```
+* **Tuyệt đối cấm:** Sử dụng `permitAll("/**")` làm tắt cơ chế bảo mật của toàn bộ service chỉ để Swagger UI hoạt động.
+
+### 13.6.6. Quy tắc bất khả xâm phạm về API Contract
+1. **Phản ánh thực tế 100%:** Swagger UI phải phản ánh chính xác API hiện có trong code và khớp tuyệt đối với `docs/api.md`.
+2. **Nghiêm cấm tạo endpoint giả:** Tuyệt đối không tạo mock controller hay API giả chỉ để Swagger UI trông phong phú hơn.
+3. **Không document API chưa tồn tại:** Nếu tính năng thuộc về tuần sau hoặc chưa được phân công/chưa code, không document trước trên Swagger.
+4. **Không expose dữ liệu nhạy cảm:** Không đưa password thật, database credentials, JWT secret hay private keys vào schema và dữ liệu mẫu (`examples`).
+5. **Đồng bộ mã lỗi Error Response:** Mọi mã lỗi 4xx/5xx trong `@ApiResponse` đều phải liên kết với Schema chuẩn `ErrorResponse.class` ([Mục 16](#16-error-response)).
 
 ---
 
@@ -2257,6 +2509,9 @@ Một feature chỉ được xem là hoàn thành khi:
 [ ] Unit tests pass
 [ ] Integration tests pass nếu cần
 [ ] API đúng contract
+[ ] OpenAPI annotations đầy đủ (@Tag, @Operation, @ApiResponses, @Schema)
+[ ] Swagger UI mở được tại /swagger-ui/index.html và test được API
+[ ] /v3/api-docs trả về OpenAPI schema hợp lệ
 [ ] Event đúng contract
 [ ] DB đúng contract
 [ ] Exception handling đầy đủ
@@ -2284,6 +2539,7 @@ Trước khi commit:
 [ ] Run tests
 [ ] Run build
 [ ] Check API changes
+[ ] Check Swagger UI & /v3/api-docs
 [ ] Check Kafka changes
 [ ] Check DB changes
 [ ] Check logs
@@ -2395,6 +2651,10 @@ Ownership không có nghĩa member khác không được hỗ trợ, nhưng trá
 ❌ Cross-service database access
 ❌ Dùng localhost giữa containers
 ❌ Tự tạo API
+❌ Tự tạo API giả / mock endpoint chỉ để hiển thị trên Swagger
+❌ Document API sai lệch với code thực tế hoặc docs/api.md
+❌ Expose password, secret, token trong Swagger schema/example
+❌ Disable Spring Security (permitAll("/**")) chỉ để chạy Swagger
 ❌ Tự tạo Kafka Event
 ❌ Tự đổi Kafka Topic
 ❌ Tự đổi DB schema

@@ -1,0 +1,19 @@
+{
+  "eventId": "a7b3c2d1-0002-4000-8000-000000000002",
+  "eventType": "PaymentSucceeded",
+  "aggregateId": "pay-test-kafka-001",
+  "aggregateType": "Payment",
+  "producer": "payment-service",
+  "correlationId": "corr-flow-demo-001",
+  "causationId": "a7b3c2d1-0001-4000-8000-000000000001",
+  "schemaVersion": "1.0",
+  "occurredAt": "2026-10-03T10:25:05Z",
+  "payload": {
+    "paymentId": "pay-test-kafka-001",
+    "tripId": "trip-test-kafka-001",
+    "passengerId": "a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d",
+    "amount": 39500.0,
+    "currency": "VND",
+    "processedAt": "2026-10-03T10:25:05Z"
+  }
+}

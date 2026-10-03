@@ -1,0 +1,34 @@
+package com.example.pricingservice.dto.request;
+
+import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotNull;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+@Schema(description = "Request payload for upfront trip quote calculation")
+public class QuoteRequest {
+
+    @Schema(description = "Trip pickup location")
+    @Valid
+    @NotNull(message = "Pickup location is required")
+    private LocationDto pickup;
+
+    @Schema(description = "Trip destination location")
+    @Valid
+    @NotNull(message = "Destination location is required")
+    private LocationDto destination;
+
+    @Schema(description = "Pre-calculated route distance in kilometers (optional)", example = "5.2")
+    private Double distanceKm;
+
+    @Schema(description = "Pre-calculated estimated duration in minutes (optional)", example = "15")
+    private Integer durationMin;
+}
+
