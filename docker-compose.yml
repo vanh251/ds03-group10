@@ -163,8 +163,8 @@ services:
       context: ./src/identity-service
       dockerfile: Dockerfile
     container_name: identity-service
-    expose:
-      - "8081"
+    ports:
+      - "${IDENTITY_PORT:-8081}:8081"
     environment:
       SERVER_PORT: 8081
       SPRING_DATASOURCE_URL: jdbc:postgresql://identity-db:5432/identity_db
@@ -189,8 +189,8 @@ services:
       context: ./src/driver-service
       dockerfile: Dockerfile
     container_name: driver-service
-    expose:
-      - "8082"
+    ports:
+      - "${DRIVER_PORT:-8082}:8082"
     environment:
       SERVER_PORT: 8082
       SPRING_DATASOURCE_URL: jdbc:postgresql://driver-db:5432/driver_db
@@ -213,8 +213,8 @@ services:
       context: ./src/trip-service
       dockerfile: Dockerfile
     container_name: trip-service
-    expose:
-      - "8083"
+    ports:
+      - "${TRIP_PORT:-8083}:8083"
     environment:
       SERVER_PORT: 8083
       SPRING_DATASOURCE_URL: jdbc:postgresql://trip-db:5432/trip_db
@@ -240,8 +240,8 @@ services:
       context: ./src/matching-service
       dockerfile: Dockerfile
     container_name: matching-service
-    expose:
-      - "8084"
+    ports:
+      - "${MATCHING_PORT:-8084}:8084"
     environment:
       SERVER_PORT: 8084
       SPRING_DATASOURCE_URL: jdbc:postgresql://matching-db:5432/matching_db
@@ -270,8 +270,8 @@ services:
       context: ./src/pricing-service
       dockerfile: Dockerfile
     container_name: pricing-service
-    expose:
-      - "8085"
+    ports:
+      - "${PRICING_PORT:-8085}:8085"
     environment:
       SERVER_PORT: 8085
     healthcheck:
@@ -288,8 +288,8 @@ services:
       context: ./src/payment-service
       dockerfile: Dockerfile
     container_name: payment-service
-    expose:
-      - "8086"
+    ports:
+      - "${PAYMENT_PORT:-8086}:8086"
     environment:
       SERVER_PORT: 8086
       SPRING_DATASOURCE_URL: jdbc:postgresql://payment-db:5432/payment_db
@@ -315,8 +315,8 @@ services:
       context: ./src/notification-service
       dockerfile: Dockerfile
     container_name: notification-service
-    expose:
-      - "8087"
+    ports:
+      - "${NOTIFICATION_PORT:-8087}:8087"
     environment:
       SERVER_PORT: 8087
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
