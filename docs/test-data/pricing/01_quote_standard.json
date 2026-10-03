@@ -1,0 +1,12 @@
+{
+  "pickup": {
+    "latitude": 21.028511,
+    "longitude": 105.854167,
+    "address": "Hoan Kiem Lake, Hanoi"
+  },
+  "destination": {
+    "latitude": 21.018822,
+    "longitude": 105.852033,
+    "address": "Vincom Center Ba Trieu, Hanoi"
+  }
+}
