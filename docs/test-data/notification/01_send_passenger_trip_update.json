@@ -1,0 +1,7 @@
+{
+  "recipientType": "PASSENGER",
+  "recipientId": "a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d",
+  "tripId": "11111111-1111-1111-1111-111111111111",
+  "title": "Tài xế đang đến!",
+  "message": "Tài xế Nguyen Van B (29A-123.45) đang di chuyển đến điểm đón. Dự kiến đến sau 3 phút."
+}

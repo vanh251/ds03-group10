@@ -1,0 +1,19 @@
+{
+  "eventId": "a7b3c2d1-0005-4000-8000-000000000005",
+  "eventType": "TripCancelled",
+  "aggregateId": "trip-test-kafka-001",
+  "aggregateType": "Trip",
+  "producer": "trip-service",
+  "correlationId": "corr-flow-demo-001",
+  "causationId": null,
+  "schemaVersion": "1.0",
+  "occurredAt": "2026-10-03T10:02:00Z",
+  "payload": {
+    "tripId": "trip-test-kafka-001",
+    "passengerId": "a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d",
+    "driverId": "d0010000-0000-0000-0000-000000000001",
+    "reason": "Passenger cancelled due to wait time",
+    "cancelledBy": "PASSENGER",
+    "cancelledAt": "2026-10-03T10:02:00Z"
+  }
+}

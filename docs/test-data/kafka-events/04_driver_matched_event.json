@@ -1,0 +1,25 @@
+{
+  "eventId": "a7b3c2d1-0004-4000-8000-000000000004",
+  "eventType": "DriverMatched",
+  "aggregateId": "trip-test-kafka-001",
+  "aggregateType": "Trip",
+  "producer": "matching-service",
+  "correlationId": "corr-flow-demo-001",
+  "causationId": null,
+  "schemaVersion": "1.0",
+  "occurredAt": "2026-10-03T10:01:00Z",
+  "payload": {
+    "tripId": "trip-test-kafka-001",
+    "driverId": "d0010000-0000-0000-0000-000000000001",
+    "driverName": "Nguyen Van B",
+    "phoneNumber": "0987654321",
+    "vehiclePlate": "29A-123.45",
+    "vehicleModel": "Honda Wave Alpha",
+    "rating": 4.9,
+    "currentLocation": {
+      "latitude": 21.0290,
+      "longitude": 105.8545
+    },
+    "estimatedArrivalMin": 3
+  }
+}

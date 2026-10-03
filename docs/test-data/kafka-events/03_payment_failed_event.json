@@ -1,0 +1,20 @@
+{
+  "eventId": "a7b3c2d1-0003-4000-8000-000000000003",
+  "eventType": "PaymentFailed",
+  "aggregateId": "pay-test-kafka-002",
+  "aggregateType": "Payment",
+  "producer": "payment-service",
+  "correlationId": "corr-flow-demo-002",
+  "causationId": "a7b3c2d1-0001-4000-8000-000000000001",
+  "schemaVersion": "1.0",
+  "occurredAt": "2026-10-03T10:25:05Z",
+  "payload": {
+    "paymentId": "pay-test-kafka-002",
+    "tripId": "trip-test-kafka-002",
+    "passengerId": "a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d",
+    "amount": 55000.0,
+    "currency": "VND",
+    "reason": "Simulated payment failure: payment gateway unreachable",
+    "failedAt": "2026-10-03T10:25:05Z"
+  }
+}
