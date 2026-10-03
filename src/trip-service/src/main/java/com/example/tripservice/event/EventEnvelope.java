@@ -1,0 +1,25 @@
+package com.example.tripservice.event;
+
+import lombok.*;
+
+import java.time.Instant;
+import java.util.UUID;
+
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class EventEnvelope<T> {
+    private UUID eventId;
+    private String eventType;
+    private String aggregateId;
+    private String aggregateType;
+    private String producer;
+    private UUID correlationId;
+    private UUID causationId;
+    @Builder.Default
+    private String schemaVersion = "1.0";
+    private Instant occurredAt;
+    private T payload;
+}
