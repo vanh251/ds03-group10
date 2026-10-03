@@ -96,7 +96,9 @@ jobs:
         uses: gradle/actions/wrapper-validation@v4
 
       - name: Build and unit test
-        run: ./gradlew clean test --no-daemon --parallel
+        run: |
+          chmod +x ./gradlew
+          ./gradlew clean test --no-daemon --parallel
 
       - name: Upload test reports
         if: always()
