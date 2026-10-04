@@ -263,15 +263,27 @@ Update driver availability status.
 }
 ```
 
-**Allowed transitions:**
+**Allowed transitions via this endpoint (driver):**
 
 | From | To |
 |---|---|
 | OFFLINE | AVAILABLE |
 | AVAILABLE | OFFLINE |
-| AVAILABLE | BUSY (set by system) |
-| BUSY | AVAILABLE |
-| RESERVED | AVAILABLE (compensation) |
+
+Requesting `RESERVED`/`BUSY`, or any transition from `RESERVED`/`BUSY` (e.g. going `OFFLINE` mid-trip) → `422`. A value that is not a `DriverStatus` at all → `400`.
+
+**Driver state machine (full reference, `DriverStatus` — CODING_CONVENTION §12.2):**
+
+| From | To | Triggered by |
+|---|---|---|
+| OFFLINE | AVAILABLE | Driver: `PATCH /api/drivers/{id}/status` |
+| AVAILABLE | OFFLINE | Driver: `PATCH /api/drivers/{id}/status` |
+| AVAILABLE | RESERVED | Matching Service: `POST /api/drivers/{id}/reserve` (CAS) |
+| RESERVED | AVAILABLE | `DELETE /api/drivers/{id}/reserve` (compensation), lease expiry (`reserved_until`), or event `TripCancelled` |
+| RESERVED | BUSY | Event `DriverAssigned` (docs/events.md §4.3) |
+| BUSY | AVAILABLE | Event `TripCompleted` (§4.5) or `TripCancelled` (§4.8) |
+
+System transitions are never done through this endpoint. Event-driven transitions only apply when `drivers.reserved_for_trip` equals the event's `tripId`.
 
 **Response 200 OK:**
 ```json
@@ -283,8 +295,9 @@ Update driver availability status.
 ```
 
 **Errors:**
-- `400` – Invalid status transition
+- `400` – Unknown status value
 - `403` – Not own resource
+- `422` – Invalid status transition
 
 ---
 

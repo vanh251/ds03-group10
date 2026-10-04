@@ -19,3 +19,8 @@ out/
 
 # Docker data
 *.data
+
+# Claude Code
+.claude/
+CLAUDE.md
+CLAUDE.local.md
