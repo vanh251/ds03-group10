@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.slf4j.MDC;
 
 @Slf4j
 @Component
@@ -22,6 +23,7 @@ public class DriverReservedConsumer {
 
     private static final Pattern TRIP_ID_PATTERN = Pattern.compile("\"tripId\"\\s*:\\s*\"([0-9a-fA-F-]+)\"");
     private static final Pattern DRIVER_ID_PATTERN = Pattern.compile("\"driverId\"\\s*:\\s*\"([0-9a-fA-F-]+)\"");
+    private static final Pattern CORRELATION_ID_PATTERN = Pattern.compile("\"correlationId\"\\s*:\\s*\"([^\"]+)\"");
 
     @KafkaListener(topics = "matching-events", groupId = "${spring.kafka.consumer.group-id:trip-service-group}")
     public void handleDriverReserved(ConsumerRecord<String, String> record) {
@@ -35,6 +37,11 @@ public class DriverReservedConsumer {
         }
 
         try {
+            Matcher correlationMatcher = CORRELATION_ID_PATTERN.matcher(message);
+            if (correlationMatcher.find()) {
+                MDC.put("correlationId", correlationMatcher.group(1));
+            }
+
             Matcher tripMatcher = TRIP_ID_PATTERN.matcher(message);
             Matcher driverMatcher = DRIVER_ID_PATTERN.matcher(message);
 
@@ -49,6 +56,8 @@ public class DriverReservedConsumer {
             }
         } catch (Exception e) {
             log.error("Error processing DriverReserved event: {}", e.getMessage(), e);
+        } finally {
+            MDC.remove("correlationId");
         }
     }
 }

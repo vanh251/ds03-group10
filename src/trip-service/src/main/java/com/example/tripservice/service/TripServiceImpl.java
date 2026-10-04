@@ -269,20 +269,14 @@ public class TripServiceImpl implements TripService {
     }
 
     private void publishTripEvent(String eventType, UUID tripId, String correlationId, Object payload) {
-        UUID corrUuid;
-        try {
-            corrUuid = UUID.fromString(correlationId);
-        } catch (Exception e) {
-            corrUuid = UUID.randomUUID();
-        }
-
         EventEnvelope<Object> envelope = EventEnvelope.builder()
                 .eventId(UUID.randomUUID())
                 .eventType(eventType)
                 .aggregateId(tripId.toString())
                 .aggregateType("Trip")
                 .producer("trip-service")
-                .correlationId(corrUuid)
+                .correlationId(correlationId)
+                .causationId(null)
                 .occurredAt(Instant.now())
                 .payload(payload)
                 .build();

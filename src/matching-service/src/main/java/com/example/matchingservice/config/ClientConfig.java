@@ -11,6 +11,7 @@ public class ClientConfig {
     @Bean
     @ConditionalOnMissingBean
     public RestClient.Builder restClientBuilder() {
-        return RestClient.builder();
+        return RestClient.builder()
+                .requestInterceptor(new RestClientCorrelationInterceptor());
     }
 }

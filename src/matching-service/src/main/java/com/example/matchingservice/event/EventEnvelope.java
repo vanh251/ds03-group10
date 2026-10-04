@@ -16,8 +16,8 @@ public class EventEnvelope<T> {
     private String aggregateId;
     private String aggregateType;
     private String producer;
-    private UUID correlationId;
-    private UUID causationId;
+    private String correlationId;
+    private String causationId;
     @Builder.Default
     private String schemaVersion = "1.0";
     private Instant occurredAt;
