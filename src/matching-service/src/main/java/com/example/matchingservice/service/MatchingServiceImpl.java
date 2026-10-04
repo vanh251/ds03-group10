@@ -181,13 +181,6 @@ public class MatchingServiceImpl implements MatchingService {
 
     private void publishDriverReservedEvent(MatchRequest request, AvailableDriverDto candidate,
                                             ReserveDriverResponse reservation, String correlationId) {
-        UUID corrUuid;
-        try {
-            corrUuid = UUID.fromString(correlationId);
-        } catch (Exception e) {
-            corrUuid = UUID.randomUUID();
-        }
-
         Map<String, Object> payload = new HashMap<>();
         payload.put("tripId", request.getTripId());
         payload.put("driverId", candidate.getId());
@@ -201,7 +194,8 @@ public class MatchingServiceImpl implements MatchingService {
                 .aggregateId(request.getTripId().toString())
                 .aggregateType("Trip")
                 .producer("matching-service")
-                .correlationId(corrUuid)
+                .correlationId(correlationId)
+                .causationId(null)
                 .occurredAt(Instant.now())
                 .payload(payload)
                 .build();

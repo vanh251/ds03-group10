@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import java.time.Instant;
+import java.util.UUID;
 
 @Slf4j
 @RestControllerAdvice
@@ -22,7 +23,7 @@ public class GlobalExceptionHandler {
                 .error(HttpStatus.NOT_FOUND.getReasonPhrase())
                 .message(ex.getMessage())
                 .path(request.getRequestURI())
-                .correlationId(request.getHeader("X-Correlation-ID"))
+                .correlationId(resolveCorrelationId(request))
                 .build();
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
     }
@@ -36,7 +37,7 @@ public class GlobalExceptionHandler {
                 .error(HttpStatus.CONFLICT.getReasonPhrase())
                 .message(ex.getMessage())
                 .path(request.getRequestURI())
-                .correlationId(request.getHeader("X-Correlation-ID"))
+                .correlationId(resolveCorrelationId(request))
                 .build();
         return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
     }
@@ -50,7 +51,7 @@ public class GlobalExceptionHandler {
                 .error(HttpStatus.CONFLICT.getReasonPhrase())
                 .message(ex.getMessage())
                 .path(request.getRequestURI())
-                .correlationId(request.getHeader("X-Correlation-ID"))
+                .correlationId(resolveCorrelationId(request))
                 .build();
         return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
     }
@@ -64,7 +65,7 @@ public class GlobalExceptionHandler {
                 .error(HttpStatus.CONFLICT.getReasonPhrase())
                 .message(ex.getMessage())
                 .path(request.getRequestURI())
-                .correlationId(request.getHeader("X-Correlation-ID"))
+                .correlationId(resolveCorrelationId(request))
                 .build();
         return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
     }
@@ -78,8 +79,21 @@ public class GlobalExceptionHandler {
                 .error(HttpStatus.INTERNAL_SERVER_ERROR.getReasonPhrase())
                 .message("An unexpected internal error occurred")
                 .path(request.getRequestURI())
-                .correlationId(request.getHeader("X-Correlation-ID"))
+                .correlationId(resolveCorrelationId(request))
                 .build();
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
+    }
+
+    private String resolveCorrelationId(HttpServletRequest request) {
+        String correlationId = request.getHeader("X-Correlation-ID");
+        if (correlationId == null || correlationId.isBlank()) {
+            Object attr = request.getAttribute("X-Correlation-ID");
+            if (attr != null) {
+                correlationId = attr.toString();
+            } else {
+                correlationId = UUID.randomUUID().toString();
+            }
+        }
+        return correlationId;
     }
 }

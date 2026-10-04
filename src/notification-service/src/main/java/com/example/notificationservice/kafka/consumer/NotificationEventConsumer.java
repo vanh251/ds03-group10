@@ -5,6 +5,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
+import org.slf4j.MDC;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
@@ -25,6 +26,11 @@ public class NotificationEventConsumer {
             JsonNode root = objectMapper.readTree(message);
             String eventType = root.path("eventType").asText();
             String correlationId = root.path("correlationId").asText();
+
+            if (correlationId != null && !correlationId.isEmpty()) {
+                MDC.put("correlationId", correlationId);
+            }
+
             JsonNode payload = root.path("payload");
 
             log.info("Notification Service received event: type={}, correlationId={}", eventType, correlationId);
@@ -42,6 +48,8 @@ public class NotificationEventConsumer {
             }
         } catch (Exception e) {
             log.error("Failed to process event in Notification Service: {}", message, e);
+        } finally {
+            MDC.remove("correlationId");
         }
     }
 

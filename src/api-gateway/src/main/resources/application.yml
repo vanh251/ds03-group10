@@ -7,41 +7,43 @@ spring:
 
   cloud:
     gateway:
-      routes:
-        - id: identity-service
-          uri: ${IDENTITY_SERVICE_URL:http://identity-service:8081}
-          predicates:
-            - Path=/api/auth/**,/api/users/**
+      server:
+        webmvc:
+          routes:
+            - id: identity-service
+              uri: ${IDENTITY_SERVICE_URL:http://localhost:8081}
+              predicates:
+                - Path=/api/auth/**,/api/users/**
 
-        - id: driver-service
-          uri: ${DRIVER_SERVICE_URL:http://driver-service:8082}
-          predicates:
-            - Path=/api/drivers/**
+            - id: driver-service
+              uri: ${DRIVER_SERVICE_URL:http://localhost:8082}
+              predicates:
+                - Path=/api/drivers/**
 
-        - id: trip-service
-          uri: ${TRIP_SERVICE_URL:http://trip-service:8083}
-          predicates:
-            - Path=/api/trips/**
+            - id: trip-service
+              uri: ${TRIP_SERVICE_URL:http://localhost:8083}
+              predicates:
+                - Path=/api/trips/**
 
-        - id: matching-service
-          uri: ${MATCHING_SERVICE_URL:http://matching-service:8084}
-          predicates:
-            - Path=/api/matching/**
+            - id: matching-service
+              uri: ${MATCHING_SERVICE_URL:http://localhost:8084}
+              predicates:
+                - Path=/api/matching/**
 
-        - id: pricing-service
-          uri: ${PRICING_SERVICE_URL:http://pricing-service:8085}
-          predicates:
-            - Path=/api/pricing/**
+            - id: pricing-service
+              uri: ${PRICING_SERVICE_URL:http://localhost:8085}
+              predicates:
+                - Path=/api/pricing/**
 
-        - id: payment-service
-          uri: ${PAYMENT_SERVICE_URL:http://payment-service:8086}
-          predicates:
-            - Path=/api/payments/**
+            - id: payment-service
+              uri: ${PAYMENT_SERVICE_URL:http://localhost:8086}
+              predicates:
+                - Path=/api/payments/**
 
-        - id: notification-service
-          uri: ${NOTIFICATION_SERVICE_URL:http://notification-service:8087}
-          predicates:
-            - Path=/api/notifications/**
+            - id: notification-service
+              uri: ${NOTIFICATION_SERVICE_URL:http://localhost:8087}
+              predicates:
+                - Path=/api/notifications/**
 
 management:
   endpoints:
@@ -60,3 +62,5 @@ logging:
   level:
     root: INFO
     org.springframework: INFO
+  pattern:
+    console: "%clr(%d{yyyy-MM-dd HH:mm:ss.SSS}){faint} %clr(%5p) %clr(${PID:- }){magenta} %clr(---){faint} %clr([%15.15t]){faint} %clr(%-40.40logger{39}){cyan} %clr(:){faint} [%X{correlationId}] %m%n%wEx"
