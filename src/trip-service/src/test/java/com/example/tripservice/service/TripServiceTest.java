@@ -51,6 +51,12 @@ class TripServiceTest {
     @Mock
     private TripEventPublisher eventPublisher;
 
+    @Mock
+    private com.example.tripservice.repository.SagaLogRepository sagaLogRepository;
+
+    @Mock
+    private com.example.tripservice.client.PricingServiceClient pricingServiceClient;
+
     @InjectMocks
     private TripServiceImpl tripService;
 
