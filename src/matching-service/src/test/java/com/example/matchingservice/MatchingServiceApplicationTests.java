@@ -23,6 +23,9 @@ class MatchingServiceApplicationTests {
     @MockitoBean
     private MatchingEventPublisher matchingEventPublisher;
 
+    @MockitoBean
+    private com.example.matchingservice.repository.OutboxEventRepository outboxEventRepository;
+
     @Test
     void contextLoads() {
     }

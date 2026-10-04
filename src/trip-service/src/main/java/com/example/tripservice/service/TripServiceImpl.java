@@ -14,6 +14,9 @@ import com.example.tripservice.exception.TripNotFoundException;
 import com.example.tripservice.mapper.TripMapper;
 import com.example.tripservice.repository.RideRequestRepository;
 import com.example.tripservice.repository.TripRepository;
+import com.example.tripservice.entity.SagaLog;
+import com.example.tripservice.repository.SagaLogRepository;
+import com.example.tripservice.client.PricingServiceClient;
 import com.example.tripservice.repository.TripStatusHistoryRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -37,6 +40,8 @@ public class TripServiceImpl implements TripService {
     private final TripStatusHistoryRepository tripStatusHistoryRepository;
     private final TripMapper tripMapper;
     private final TripEventPublisher eventPublisher;
+    private final SagaLogRepository sagaLogRepository;
+    private final PricingServiceClient pricingServiceClient;
 
     @Override
     @Transactional
@@ -92,6 +97,7 @@ public class TripServiceImpl implements TripService {
         rideRequestRepository.save(rideRequest);
 
         recordStatusHistory(trip.getTripId(), TripStatus.REQUESTED, TripStatus.SEARCHING, "Ride requested and searching for driver");
+        recordSagaLog(trip.getTripId(), "TripRequested", "STARTED", "{}");
 
         publishTripEvent("RideRequested", trip.getTripId(), effectiveCorrelationId, Map.of(
                 "tripId", trip.getTripId(),
@@ -176,11 +182,20 @@ public class TripServiceImpl implements TripService {
 
         trip.setStatus(TripStatus.COMPLETED);
         trip.setCompletedAt(Instant.now());
+        
+        int durationMin = 15; // default fallback
+        if (trip.getStartedAt() != null) {
+            durationMin = (int) java.time.Duration.between(trip.getStartedAt(), trip.getCompletedAt()).toMinutes();
+            if (durationMin < 1) durationMin = 1;
+        }
+        
         if (trip.getFinalFare() == null) {
-            trip.setFinalFare(trip.getEstimatedFare() != null ? trip.getEstimatedFare() : BigDecimal.valueOf(30000));
+            BigDecimal calculatedFare = pricingServiceClient.getFinalFare(tripId, trip.getDistanceKm() != null ? trip.getDistanceKm() : 0.0, durationMin);
+            trip.setFinalFare(calculatedFare != null ? calculatedFare : (trip.getEstimatedFare() != null ? trip.getEstimatedFare() : BigDecimal.valueOf(30000)));
         }
 
         recordStatusHistory(tripId, TripStatus.IN_PROGRESS, TripStatus.COMPLETED, "Driver completed trip");
+        recordSagaLog(tripId, "TripCompleted", "COMPLETED", "{}");
         trip = tripRepository.save(trip);
 
         publishTripEvent("TripCompleted", trip.getTripId(), trip.getCorrelationId(), Map.of(
@@ -245,6 +260,7 @@ public class TripServiceImpl implements TripService {
         trip.setDriverId(driverId);
         trip.setStatus(TripStatus.ASSIGNED);
         recordStatusHistory(tripId, TripStatus.SEARCHING, TripStatus.ASSIGNED, "Driver reserved and assigned");
+        recordSagaLog(tripId, "DriverReserved", "DRIVER_RESERVED", "{\"driverId\":\"" + driverId + "\"}");
         trip = tripRepository.save(trip);
 
         publishTripEvent("DriverAssigned", trip.getTripId(), trip.getCorrelationId(), Map.of(
@@ -266,6 +282,18 @@ public class TripServiceImpl implements TripService {
                 .changedAt(Instant.now())
                 .build();
         tripStatusHistoryRepository.save(history);
+    }
+
+    private void recordSagaLog(UUID tripId, String stepName, String status, String payload) {
+        SagaLog sagaLog = SagaLog.builder()
+                .id(UUID.randomUUID())
+                .tripId(tripId)
+                .stepName(stepName)
+                .status(status)
+                .payload(payload)
+                .createdAt(Instant.now())
+                .build();
+        sagaLogRepository.save(sagaLog);
     }
 
     private void publishTripEvent(String eventType, UUID tripId, String correlationId, Object payload) {
