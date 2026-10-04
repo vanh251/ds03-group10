@@ -110,13 +110,22 @@ CREATE TABLE drivers (
     user_id             UUID        NOT NULL,   -- soft ref → db_identity.users.user_id
     license_number      VARCHAR(50)  NOT NULL,
 
-    -- State machine: OFFLINE → AVAILABLE → RESERVED → ON_TRIP → AVAILABLE
+    -- State machine (enum DriverStatus — CODING_CONVENTION §12.2):
+    --   OFFLINE ⇄ AVAILABLE                 (driver: PATCH /status)
+    --   AVAILABLE → RESERVED                (POST /reserve, CAS)
+    --   RESERVED  → AVAILABLE               (DELETE /reserve, lease expiry, TripCancelled)
+    --   RESERVED  → BUSY                    (consume DriverAssigned)
+    --   BUSY      → AVAILABLE               (consume TripCompleted / TripCancelled)
+    -- Full transition table: docs/api.md → PATCH /api/drivers/{id}/status
     status              VARCHAR(20)  NOT NULL DEFAULT 'OFFLINE'
-                            CHECK (status IN ('OFFLINE', 'AVAILABLE', 'RESERVED', 'ON_TRIP')),
+                            CHECK (status IN ('OFFLINE', 'AVAILABLE', 'RESERVED', 'BUSY')),
 
     -- Reservation fields (set atomically with status = RESERVED)
+    -- reserved_for_trip is kept while RESERVED and BUSY and cleared on return to
+    -- AVAILABLE. Consumers only change status when it equals the event's tripId,
+    -- so a late/duplicate event for an old trip cannot release the driver.
     reserved_for_trip   UUID,                   -- soft ref → db_trip.trips.trip_id
-    reserved_until      TIMESTAMPTZ,            -- lease expiry; heartbeat extends this
+    reserved_until      TIMESTAMPTZ,            -- lease expiry (RESERVED only); cleared on RESERVED → BUSY
 
     -- Real-time location (primary store; Redis GEO is a cache layer)
     current_lat         DECIMAL(9, 6),
@@ -140,7 +149,7 @@ CREATE INDEX idx_drivers_reserved      ON drivers(reserved_until)
     WHERE status = 'RESERVED';
 -- Partial: heartbeat monitor (find stale drivers)
 CREATE INDEX idx_drivers_heartbeat     ON drivers(last_heartbeat_at)
-    WHERE status IN ('AVAILABLE', 'RESERVED', 'ON_TRIP');
+    WHERE status IN ('AVAILABLE', 'RESERVED', 'BUSY');
 
 -- Enforce: a driver can only be reserved for ONE trip at a time
 CREATE UNIQUE INDEX uq_driver_active_reservation
@@ -193,6 +202,18 @@ CREATE INDEX idx_driver_locations_driver_time
 -- Recent locations across all drivers (monitoring dashboard)
 CREATE INDEX idx_driver_locations_recent
     ON driver_locations(recorded_at DESC);
+
+-- ── processed_events ──────────────────────────────────────────
+-- Consumer-side deduplication table (CODING_CONVENTION §21.1).
+-- Driver Service consumes from trip-events: DriverAssigned,
+-- TripCompleted, TripCancelled (see docs/events.md §5).
+-- Insert event_id in the SAME transaction as the drivers status
+-- update. If event_id already exists → skip (duplicate delivery).
+CREATE TABLE processed_events (
+    event_id            UUID         PRIMARY KEY,   -- the incoming Kafka message eventId
+    event_type          VARCHAR(100) NOT NULL,      -- e.g., 'TripCompleted'
+    processed_at        TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
 ```
 
 ---

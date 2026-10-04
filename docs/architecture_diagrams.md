@@ -364,7 +364,7 @@ classDiagram
             +UUID driver_id PK
             +UUID user_id SOFT_REF
             +String license_number
-            +Enum status OFFLINE|AVAILABLE|RESERVED|ON_TRIP
+            +Enum status OFFLINE|AVAILABLE|RESERVED|BUSY
             +UUID reserved_for_trip SOFT_REF
             +DateTime reserved_until
             +Decimal current_lat
