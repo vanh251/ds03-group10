@@ -20,6 +20,13 @@ jwt:
   secret: ${JWT_SECRET:dGhpc19pc19hX3Zlcnlfc2VjdXJlX2tleV9mb3JfaHMyNTZfamF2YV9zcHJpbmdfYm9vdF9kczAzX3JpZGVfaGFpbGluZw==}
   expiration-ms: ${JWT_EXPIRATION_MS:86400000}
 
+# Fake DRIVER/PASSENGER accounts for local runs and demos (docs/test-data/identity/README.md).
+# Set SEED_DATA_ENABLED=false for any environment that is not a local/demo one.
+app:
+  seed:
+    enabled: ${SEED_DATA_ENABLED:true}
+    password: ${SEED_USER_PASSWORD:Demo@12345}
+
 management:
   endpoints:
     web:

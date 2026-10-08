@@ -172,6 +172,8 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-postgres_secure_password_123}
       JWT_SECRET: ${JWT_SECRET:-dGhpc19pc19hX3Zlcnlfc2VjdXJlX2tleV9mb3JfaHMyNTZfamF2YV9zcHJpbmdfYm9vdF9kczAzX3JpZGVfaGFpbGluZw==}
       JWT_EXPIRATION_MS: ${JWT_EXPIRATION_MS:-86400000}
+      SEED_DATA_ENABLED: ${SEED_DATA_ENABLED:-true}
+      SEED_USER_PASSWORD: ${SEED_USER_PASSWORD:-Demo@12345}
     depends_on:
       identity-db:
         condition: service_healthy

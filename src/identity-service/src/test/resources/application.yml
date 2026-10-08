@@ -8,3 +8,7 @@ spring:
 jwt:
   secret: dGVzdC1vbmx5LWp3dC1zZWNyZXQta2V5LWZvci1pZGVudGl0eS1zZXJ2aWNlLXRlc3Rz
   expiration-ms: 3600000
+
+app:
+  seed:
+    enabled: false
