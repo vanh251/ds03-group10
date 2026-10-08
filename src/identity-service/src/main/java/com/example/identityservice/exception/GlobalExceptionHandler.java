@@ -11,6 +11,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import java.time.Instant;
 import java.util.stream.Collectors;
@@ -44,6 +45,15 @@ public class GlobalExceptionHandler {
         log.warn("Unreadable request body on path {}, correlationId={}", request.getRequestURI(), correlationId);
         return buildResponse(HttpStatus.BAD_REQUEST, "Request body is malformed or contains invalid values",
                 "MALFORMED_REQUEST", request, correlationId);
+    }
+
+    // e.g. GET /api/users/abc where the id must be a UUID
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ErrorResponse> handleTypeMismatch(MethodArgumentTypeMismatchException ex, HttpServletRequest request) {
+        String correlationId = resolveCorrelationId(request);
+        log.warn("Invalid value for parameter '{}' on path {}, correlationId={}", ex.getName(), request.getRequestURI(), correlationId);
+        return buildResponse(HttpStatus.BAD_REQUEST, "Invalid value for parameter '" + ex.getName() + "'",
+                "INVALID_PARAMETER", request, correlationId);
     }
 
     @ExceptionHandler(Exception.class)
