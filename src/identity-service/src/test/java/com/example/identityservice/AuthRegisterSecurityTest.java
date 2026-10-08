@@ -75,4 +75,15 @@ class AuthRegisterSecurityTest {
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
                 .andExpect(jsonPath("$.correlationId").value(correlationId));
     }
+
+    @Test
+    @DisplayName("Without X-Correlation-ID the service does not generate one (only the gateway does)")
+    void register_invalidBodyWithoutCorrelationHeader_returns400WithoutCorrelationId() throws Exception {
+        mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"user@example.com\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.correlationId").doesNotExist());
+    }
 }

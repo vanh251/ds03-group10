@@ -13,7 +13,6 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import java.time.Instant;
-import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -69,11 +68,12 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(status).body(response);
     }
 
+    // Returns null when the caller sent no X-Correlation-ID; the field is then omitted from the error body
     private String resolveCorrelationId(HttpServletRequest request) {
         String correlationId = request.getHeader(CorrelationIdFilter.CORRELATION_ID_HEADER);
         if (correlationId == null || correlationId.isBlank()) {
             Object attr = request.getAttribute(CorrelationIdFilter.CORRELATION_ID_HEADER);
-            correlationId = attr != null ? attr.toString() : UUID.randomUUID().toString();
+            correlationId = attr != null ? attr.toString() : null;
         }
         return correlationId;
     }
