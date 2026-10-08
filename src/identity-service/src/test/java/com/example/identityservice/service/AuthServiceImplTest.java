@@ -1,6 +1,8 @@
 package com.example.identityservice.service;
 
+import com.example.identityservice.dto.request.LoginRequest;
 import com.example.identityservice.dto.request.RegisterRequest;
+import com.example.identityservice.dto.response.LoginResponse;
 import com.example.identityservice.dto.response.UserResponse;
 import com.example.identityservice.entity.User;
 import com.example.identityservice.entity.UserRole;
@@ -22,6 +24,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
 import java.time.Instant;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -42,6 +45,9 @@ class AuthServiceImplTest {
 
     @Spy
     private UserMapper userMapper = new UserMapper();
+
+    @Mock
+    private JwtService jwtService;
 
     @InjectMocks
     private AuthServiceImpl authService;
@@ -155,5 +161,76 @@ class AuthServiceImplTest {
         assertEquals("ROLE_NOT_ALLOWED", ex.getCode());
         verifyNoInteractions(userRepository);
         verify(passwordEncoder, never()).encode(any());
+    }
+
+    private User existingUser(String email, UserRole role) {
+        return User.builder()
+                .userId(UUID.randomUUID())
+                .email(email)
+                .passwordHash(passwordEncoder.encode(RAW_PASSWORD))
+                .fullName("Tran Van Binh")
+                .role(role)
+                .build();
+    }
+
+    private LoginRequest loginRequest(String email, String password) {
+        return LoginRequest.builder().email(email).password(password).build();
+    }
+
+    @Test
+    @DisplayName("login with the right password returns a Bearer token with userId, role and lifetime")
+    void login_validCredentials_returnsToken() {
+        User user = existingUser("driver01@ds03.test", UserRole.DRIVER);
+        when(userRepository.findByEmail("driver01@ds03.test")).thenReturn(Optional.of(user));
+        when(jwtService.generateToken(user)).thenReturn("signed.jwt.token");
+        when(jwtService.getExpirationSeconds()).thenReturn(86400L);
+
+        LoginResponse response = authService.login(loginRequest("driver01@ds03.test", RAW_PASSWORD));
+
+        assertEquals("signed.jwt.token", response.getAccessToken());
+        assertEquals("Bearer", response.getTokenType());
+        assertEquals(86400L, response.getExpiresIn());
+        assertEquals(user.getUserId(), response.getUserId());
+        assertEquals(UserRole.DRIVER, response.getRole());
+    }
+
+    @Test
+    @DisplayName("login trims and lower-cases the email before looking the user up")
+    void login_emailWithUppercaseAndSpaces_looksUpNormalizedEmail() {
+        User user = existingUser("driver01@ds03.test", UserRole.DRIVER);
+        when(userRepository.findByEmail("driver01@ds03.test")).thenReturn(Optional.of(user));
+        when(jwtService.generateToken(user)).thenReturn("signed.jwt.token");
+
+        authService.login(loginRequest("  Driver01@DS03.test ", RAW_PASSWORD));
+
+        verify(userRepository).findByEmail("driver01@ds03.test");
+    }
+
+    @Test
+    @DisplayName("login with a wrong password throws 401 INVALID_CREDENTIALS and issues no token")
+    void login_wrongPassword_throwsUnauthorized() {
+        User user = existingUser("driver01@ds03.test", UserRole.DRIVER);
+        when(userRepository.findByEmail("driver01@ds03.test")).thenReturn(Optional.of(user));
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> authService.login(loginRequest("driver01@ds03.test", "wrong-password")));
+
+        assertEquals(HttpStatus.UNAUTHORIZED, ex.getStatus());
+        assertEquals("INVALID_CREDENTIALS", ex.getCode());
+        verify(jwtService, never()).generateToken(any());
+    }
+
+    @Test
+    @DisplayName("login with an unknown email throws the same 401 INVALID_CREDENTIALS as a wrong password")
+    void login_unknownEmail_throwsUnauthorized() {
+        when(userRepository.findByEmail("nobody@ds03.test")).thenReturn(Optional.empty());
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> authService.login(loginRequest("nobody@ds03.test", RAW_PASSWORD)));
+
+        assertEquals(HttpStatus.UNAUTHORIZED, ex.getStatus());
+        assertEquals("INVALID_CREDENTIALS", ex.getCode());
+        assertEquals("Invalid email or password", ex.getMessage());
+        verify(jwtService, never()).generateToken(any());
     }
 }

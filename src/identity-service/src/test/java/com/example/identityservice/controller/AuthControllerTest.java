@@ -1,6 +1,8 @@
 package com.example.identityservice.controller;
 
+import com.example.identityservice.dto.request.LoginRequest;
 import com.example.identityservice.dto.request.RegisterRequest;
+import com.example.identityservice.dto.response.LoginResponse;
 import com.example.identityservice.dto.response.UserResponse;
 import com.example.identityservice.entity.UserRole;
 import com.example.identityservice.exception.BusinessException;
@@ -41,6 +43,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class AuthControllerTest {
 
     private static final String REGISTER_URL = "/api/auth/register";
+    private static final String LOGIN_URL = "/api/auth/login";
     private static final JsonMapper JSON = new JsonMapper();
 
     private MockMvc mockMvc;
@@ -212,5 +215,77 @@ class AuthControllerTest {
                         .content(body("Nguyen Van A", "admin@example.com", "S3cure-Pass!", "ADMIN")))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("ROLE_NOT_ALLOWED"));
+    }
+
+    private static String loginBody(String email, String password) {
+        Map<String, Object> fields = new LinkedHashMap<>();
+        if (email != null) fields.put("email", email);
+        if (password != null) fields.put("password", password);
+        return JSON.writeValueAsString(fields);
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/login with valid credentials returns 200 with the token fields from docs/api.md")
+    void login_validCredentials_returns200() throws Exception {
+        UUID userId = UUID.randomUUID();
+        when(authService.login(any(LoginRequest.class))).thenReturn(LoginResponse.builder()
+                .accessToken("signed.jwt.token")
+                .tokenType("Bearer")
+                .expiresIn(86400)
+                .userId(userId)
+                .role(UserRole.DRIVER)
+                .build());
+
+        mockMvc.perform(post(LOGIN_URL)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(loginBody("driver01@ds03.test", "S3cure-Pass!")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accessToken").value("signed.jwt.token"))
+                .andExpect(jsonPath("$.tokenType").value("Bearer"))
+                .andExpect(jsonPath("$.expiresIn").value(86400))
+                .andExpect(jsonPath("$.userId").value(userId.toString()))
+                .andExpect(jsonPath("$.role").value("DRIVER"));
+    }
+
+    static Stream<Arguments> invalidLoginPayloads() {
+        return Stream.of(
+                Arguments.of("missing email", loginBody(null, "S3cure-Pass!")),
+                Arguments.of("invalid email format", loginBody("not-an-email", "S3cure-Pass!")),
+                Arguments.of("missing password", loginBody("driver01@ds03.test", null)),
+                Arguments.of("blank password", loginBody("driver01@ds03.test", "   ")),
+                Arguments.of("password 73 chars", loginBody("driver01@ds03.test", "p".repeat(73)))
+        );
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("invalidLoginPayloads")
+    @DisplayName("POST /api/auth/login with an invalid field returns 400 VALIDATION_ERROR and never calls the service")
+    void login_invalidPayload_returns400(String caseName, String payload) throws Exception {
+        mockMvc.perform(post(LOGIN_URL)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.path").value(LOGIN_URL));
+
+        verifyNoInteractions(authService);
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/login with wrong credentials returns 401 INVALID_CREDENTIALS")
+    void login_invalidCredentials_returns401() throws Exception {
+        when(authService.login(any(LoginRequest.class)))
+                .thenThrow(new BusinessException("Invalid email or password", HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS"));
+
+        mockMvc.perform(post(LOGIN_URL)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("X-Correlation-ID", "corr-401")
+                        .content(loginBody("driver01@ds03.test", "wrong-password")))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.status").value(401))
+                .andExpect(jsonPath("$.error").value("Unauthorized"))
+                .andExpect(jsonPath("$.message").value("Invalid email or password"))
+                .andExpect(jsonPath("$.code").value("INVALID_CREDENTIALS"))
+                .andExpect(jsonPath("$.correlationId").value("corr-401"));
     }
 }
