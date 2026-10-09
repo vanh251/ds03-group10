@@ -140,8 +140,10 @@ CREATE TABLE drivers (
     updated_at          TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 
--- Fast lookup by identity cross-reference
-CREATE INDEX idx_drivers_user_id       ON drivers(user_id);
+-- One driver profile per identity user; also the fast lookup by identity cross-reference.
+-- Driver registration (POST /api/auth/register/driver) relies on it: a retried create gets
+-- 409 DRIVER_PROFILE_EXISTS and the compensation DELETE /internal/drivers?userId= hits one row.
+CREATE UNIQUE INDEX uq_drivers_user_id ON drivers(user_id);
 -- Matching Service queries AVAILABLE drivers frequently
 CREATE INDEX idx_drivers_status        ON drivers(status);
 -- Partial: reservation cleanup job (find expired leases)

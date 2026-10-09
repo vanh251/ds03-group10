@@ -24,18 +24,22 @@ Tất cả dùng chung mật khẩu `SEED_USER_PASSWORD` (mặc định `Demo@12
 | 13 | Phan Gia Bao | `passenger03@ds03.test` | PASSENGER |
 
 `userId` là UUID do database sinh, mỗi môi trường sẽ khác nhau: lấy từ response của `POST /api/auth/login`.
-Hồ sơ tài xế bên `driver-service` (xe, vị trí, trạng thái) chưa được seed vì service đó chưa có entity `Driver`.
+10 tài khoản seed ở trên **chưa có hồ sơ xe** bên `driver-service` (seeder chỉ ghi `identity_db`). Tài xế đăng ký qua `POST /api/auth/register/driver` thì có đủ cả hai.
 
 ## Request mẫu
 
 | File | Endpoint | Kết quả mong đợi |
 |---|---|---|
-| `01_register_passenger.json` | `POST /api/auth/register` | `201` (lần 2 → `409 EMAIL_ALREADY_REGISTERED`) |
-| `02_register_driver.json` | `POST /api/auth/register` | `201` |
+| `01_register_passenger.json` | `POST /api/auth/register/passenger` | `201` (lần 2 → `409 EMAIL_ALREADY_REGISTERED`) |
+| `02_register_driver.json` | `POST /api/auth/register/driver` | `201` + `driver` (status `OFFLINE`, biển số lưu `29A-12345`); gửi lại với email khác → `409 LICENSE_PLATE_ALREADY_REGISTERED` |
 | `03_login_seeded_driver.json` | `POST /api/auth/login` | `200` + `accessToken`, `role = DRIVER` |
 | `04_login_seeded_passenger.json` | `POST /api/auth/login` | `200` + `accessToken`, `role = PASSENGER` |
 | `05_login_wrong_password.json` | `POST /api/auth/login` | `401 INVALID_CREDENTIALS` |
 | `06_login_missing_password.json` | `POST /api/auth/login` | `400 VALIDATION_ERROR` |
+| `07_register_driver_invalid_plate.json` | `POST /api/auth/register/driver` | `400 VALIDATION_ERROR` từ driver-service; tài khoản bị xóa lại (login bằng email đó → `401`) |
+| `08_register_driver_missing_vehicle.json` | `POST /api/auth/register/driver` | `400 VALIDATION_ERROR` ngay ở identity, không tạo gì |
+
+Đăng ký tài xế khi driver-service đang tắt → `503 DRIVER_SERVICE_UNAVAILABLE`, tài khoản không được giữ lại (xem saga trong `docs/api.md`).
 
 ## Luồng demo: Login → GET /api/users/{id}
 

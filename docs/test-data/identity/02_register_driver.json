@@ -2,5 +2,13 @@
   "fullName": "Tran Van B",
   "email": "driver.new@ds03.test",
   "password": "Demo@12345",
-  "role": "DRIVER"
+  "licenseNumber": "012345678901",
+  "vehicle": {
+    "licensePlate": "29A-123.45",
+    "make": "Toyota",
+    "model": "Vios",
+    "color": "White",
+    "year": 2022,
+    "vehicleType": "SEDAN"
+  }
 }

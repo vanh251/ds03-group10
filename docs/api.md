@@ -26,7 +26,7 @@
 
 ## 1. Authentication
 
-All requests to backend services (except `/api/auth/register` and `/api/auth/login`) require:
+All requests to backend services (except `/api/auth/register/passenger`, `/api/auth/register/driver` and `/api/auth/login`) require:
 
 ```
 Authorization: Bearer <accessToken>
@@ -51,9 +51,9 @@ Authorization: Bearer <accessToken>
 
 ---
 
-### POST /api/auth/register
+### POST /api/auth/register/passenger
 
-Register a new user.
+Register a passenger account. The role is set by the endpoint (`PASSENGER`); a `role` field in the body is ignored.
 
 **Auth required:** No
 
@@ -62,17 +62,15 @@ Register a new user.
 {
   "fullName": "Nguyen Van A",
   "email": "user@example.com",
-  "password": "securePassword123",
-  "role": "PASSENGER"
+  "password": "securePassword123"
 }
 ```
 
 | Field | Type | Required | Constraints |
 |---|---|---|---|
 | fullName | string | Yes | 1-100 chars |
-| email | string | Yes | Valid email, unique |
-| password | string | Yes | Min 8 chars |
-| role | enum | Yes | `PASSENGER` or `DRIVER` |
+| email | string | Yes | Valid email, unique (stored trimmed and lower-cased) |
+| password | string | Yes | 8-72 chars (BCrypt limit) |
 
 **Response 201 Created:**
 ```json
@@ -86,8 +84,93 @@ Register a new user.
 ```
 
 **Errors:**
-- `400` – Validation error (missing field, invalid email format)
-- `409` – Email already registered
+- `400 VALIDATION_ERROR` – Missing field, invalid email format, password length
+- `409 EMAIL_ALREADY_REGISTERED` – Email already registered
+
+---
+
+### POST /api/auth/register/driver
+
+Register a driver account together with the driver profile and vehicle. The account lives in `identity_db`, the profile and vehicle in `driver_db`, so this endpoint runs a saga with compensation (CODING_CONVENTION §30–31):
+
+```
+identity-service                                     driver-service
+1. validate account fields (+ presence of driver fields)
+2. INSERT user (role DRIVER) → COMMIT
+3. POST /internal/drivers {userId, licenseNumber, vehicle}  ──►  validate formats, INSERT drivers + vehicles
+   (timeouts: connect 1s, read 2s)
+4a. 201                    → return 201
+4b. 400 / 409              → driver-service created nothing → delete user → return the same 400 / 409 code
+4c. timeout / 5xx / down   → outcome unknown → DELETE /internal/drivers?userId=… (idempotent)
+                             → delete user → 503 DRIVER_SERVICE_UNAVAILABLE
+                             (a failed compensation is logged at ERROR with the userId for manual cleanup)
+```
+
+> Known limitations (accepted for this project, no reconciliation job yet):
+> - Between steps 2 and 4b/4c (a few seconds at most, bounded by the timeouts) the account exists, so a login with the same credentials during that window would get a token for an account that is then deleted.
+> - In 4c, if driver-service is still processing the create when the compensating DELETE arrives, the DELETE finds nothing (204) and the profile is committed afterwards, leaving an orphan profile whose plate stays taken. identity-service cannot detect this; it shows up as `409 LICENSE_PLATE_ALREADY_REGISTERED` on a retry and must be removed by hand.
+
+**Auth required:** No
+
+**Request Body:**
+```json
+{
+  "fullName": "Tran Van B",
+  "email": "driver@example.com",
+  "password": "securePassword123",
+  "licenseNumber": "012345678901",
+  "vehicle": {
+    "licensePlate": "29A-123.45",
+    "make": "Toyota",
+    "model": "Vios",
+    "color": "White",
+    "year": 2022,
+    "vehicleType": "SEDAN"
+  }
+}
+```
+
+| Field | Type | Required | Constraints (checked by) |
+|---|---|---|---|
+| fullName, email, password | | Yes | Same as passenger (identity) |
+| licenseNumber | string | Yes | Exactly 12 digits (driver) |
+| vehicle.licensePlate | string | Yes | `29A-12345`, `29A-123.45`, `29A-1234`, `29B1-12345`, `30LD-12345`; stored upper-case without dots; unique (driver) |
+| vehicle.make / model | string | Yes | 1-50 chars (driver) |
+| vehicle.color | string | Yes | 1-30 chars (driver) |
+| vehicle.year | int | Yes | 1980 to next year (driver) |
+| vehicle.vehicleType | enum | Yes | `SEDAN`, `SUV`, `MOTORBIKE`, `VAN` (driver) |
+
+**Response 201 Created:**
+```json
+{
+  "id": "a1b2c3d4-...",
+  "fullName": "Tran Van B",
+  "email": "driver@example.com",
+  "role": "DRIVER",
+  "createdAt": "2026-09-30T10:00:00Z",
+  "driver": {
+    "driverId": "d001-...",
+    "status": "OFFLINE",
+    "licenseNumber": "012345678901",
+    "vehicle": {
+      "vehicleId": "v001-...",
+      "licensePlate": "29A-12345",
+      "make": "Toyota",
+      "model": "Vios",
+      "color": "White",
+      "year": 2022,
+      "vehicleType": "SEDAN"
+    }
+  }
+}
+```
+
+**Errors:**
+- `400 VALIDATION_ERROR` – Missing field, or a format rejected by driver-service (plate, license number, year)
+- `400 MALFORMED_REQUEST` – Unknown `vehicleType`
+- `409 EMAIL_ALREADY_REGISTERED` – Email already registered
+- `409 LICENSE_PLATE_ALREADY_REGISTERED` – Plate already registered
+- `503 DRIVER_SERVICE_UNAVAILABLE` – driver-service did not answer in time; nothing was kept, the client may retry
 
 ---
 
@@ -364,6 +447,35 @@ Reserve a driver (CAS lock with 30s lease). Used internally by Matching Service.
 Release driver reservation (compensating action). Returns driver to AVAILABLE.
 
 **Auth required:** Yes (internal service call)
+
+**Response 204 No Content**
+
+---
+
+### Internal APIs (identity-service → driver-service)
+
+Service-to-service endpoints used by `POST /api/auth/register/driver`. They are **not routed by the API Gateway** and require the header `X-Internal-Api-Key` (value of `INTERNAL_API_KEY`, shared by both services) instead of a JWT. Missing or wrong key → `401 INVALID_INTERNAL_API_KEY`.
+
+#### POST /internal/drivers
+
+Create the driver profile (status `OFFLINE`) and its vehicle.
+
+**Request Body:**
+```json
+{
+  "userId": "a1b2c3d4-...",
+  "licenseNumber": "012345678901",
+  "vehicle": { "licensePlate": "29A-123.45", "make": "Toyota", "model": "Vios", "color": "White", "year": 2022, "vehicleType": "SEDAN" }
+}
+```
+
+**Response 201 Created:** `{ "driverId", "userId", "status": "OFFLINE", "licenseNumber", "vehicle": {...}, "createdAt" }`
+
+**Errors:** `400` validation, `401` internal key, `409 DRIVER_PROFILE_EXISTS` (one profile per user), `409 LICENSE_PLATE_ALREADY_REGISTERED`
+
+#### DELETE /internal/drivers?userId={userId}
+
+Compensation step. Deletes the profile and vehicle of the user. Idempotent: `204` also when no profile exists. Only a profile that is `OFFLINE` and not reserved can be deleted, otherwise `409 DRIVER_PROFILE_IN_USE`.
 
 **Response 204 No Content**
 
@@ -761,6 +873,7 @@ Get payment status for a trip.
 | `X-Correlation-ID` | No (auto-generated if absent) | Trace ID for distributed tracing |
 | `X-Request-ID` | No | Unique per-request ID |
 | `X-Idempotency-Key` | Required for payment charge | Prevents duplicate operations |
+| `X-Internal-Api-Key` | Required for `/internal/**` (service-to-service only) | Shared secret `INTERNAL_API_KEY`; never sent by clients |
 
 ### Pagination (for list endpoints)
 
@@ -788,7 +901,7 @@ Error responses follow:
   "status": 400,
   "error": "Bad Request",
   "message": "Email already registered",
-  "path": "/api/auth/register",
+  "path": "/api/auth/register/passenger",
   "correlationId": "corr-001"
 }
 ```
@@ -831,3 +944,4 @@ All client requests enter via `http://localhost:8080`.
 | `/actuator/health` | api-gateway | (local) |
 
 > No `lb://` scheme is used. Service discovery is via Docker DNS only.
+> `/internal/**` (service-to-service APIs) is intentionally **not** routed by the gateway.
