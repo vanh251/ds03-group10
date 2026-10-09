@@ -18,11 +18,8 @@ public interface DriverService {
 
     void deleteDriverByUserId(UUID userId);
 
-    /**
-     * AVAILABLE drivers. With a reference point, only those within radiusKm, nearest first;
-     * without one, all AVAILABLE drivers with distanceKm null.
-     */
-    List<AvailableDriverResponse> findAvailableDrivers(Double latitude, Double longitude, double radiusKm);
+    /** The {@code limit} nearest AVAILABLE drivers within radiusKm of the point, with the version used for reservation. */
+    List<AvailableDriverResponse> findAvailableDrivers(double latitude, double longitude, double radiusKm, int limit);
 
     /** The {@code limit} nearest AVAILABLE drivers within radiusKm of the pickup point, nearest first. */
     List<NearbyDriverResponse> findNearbyDrivers(double latitude, double longitude, double radiusKm, int limit);
@@ -33,5 +30,6 @@ public interface DriverService {
     /** Stores the driver's own position report; callerId is the user id from the JWT. */
     DriverLocationResponse updateLocation(UUID driverId, double latitude, double longitude, UUID callerId);
 
-    DriverDetailResponse getDriver(UUID driverId);
+    /** Profile, active vehicle and position; an OFFLINE driver's position is shown only to the driver (callerId). */
+    DriverDetailResponse getDriver(UUID driverId, UUID callerId);
 }

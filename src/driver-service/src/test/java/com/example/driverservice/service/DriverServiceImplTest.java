@@ -48,6 +48,7 @@ import static org.mockito.Mockito.*;
 class DriverServiceImplTest {
 
     private static final UUID USER_ID = UUID.fromString("11111111-1111-1111-1111-111111111111");
+    private static final UUID PASSENGER_ID = UUID.fromString("22222222-2222-2222-2222-222222222222");
 
     @Mock
     private DriverRepository driverRepository;
@@ -269,23 +270,6 @@ class DriverServiceImplTest {
     }
 
     @Test
-    @DisplayName("findAvailableDrivers without a point returns every AVAILABLE driver with distanceKm null")
-    void findAvailableDrivers_noPoint_returnsAllAvailable() {
-        Driver withLocation = availableDriver("A", 21.0250, 105.8570);
-        Driver withoutLocation = Driver.builder().driverId(UUID.randomUUID()).fullName("B")
-                .status(DriverStatus.AVAILABLE).version(1).build();
-        when(driverRepository.findByStatus(DriverStatus.AVAILABLE)).thenReturn(List.of(withLocation, withoutLocation));
-
-        List<AvailableDriverResponse> result = driverService.findAvailableDrivers(null, null, 5.0);
-
-        assertEquals(2, result.size());
-        assertNull(result.get(0).getDistanceKm());
-        assertEquals(21.0250, result.get(0).getLocation().getLatitude());
-        assertNull(result.get(1).getLocation());
-        verify(driverRepository, never()).findByStatusAndCurrentLatBetweenAndCurrentLngBetween(any(), any(), any(), any(), any());
-    }
-
-    @Test
     @DisplayName("findAvailableDrivers keeps drivers inside the radius, nearest first, and drops box corners outside it")
     void findAvailableDrivers_withPoint_filtersByRadiusAndSortsByDistance() {
         Driver hangBai = availableDriver("Hang Bai", 21.0190, 105.8520);      // 1.08 km
@@ -296,7 +280,7 @@ class DriverServiceImplTest {
                 eq(DriverStatus.AVAILABLE), any(), any(), any(), any()))
                 .thenReturn(List.of(hangBai, corner, trangTien));
 
-        List<AvailableDriverResponse> result = driverService.findAvailableDrivers(21.0285, 105.8542, 5.0);
+        List<AvailableDriverResponse> result = driverService.findAvailableDrivers(21.0285, 105.8542, 5.0, 20);
 
         assertEquals(List.of("Trang Tien", "Hang Bai"), result.stream().map(AvailableDriverResponse::getFullName).toList());
         assertEquals(0.49, result.get(0).getDistanceKm());
@@ -317,7 +301,7 @@ class DriverServiceImplTest {
                 eq(DriverStatus.AVAILABLE), minLat.capture(), maxLat.capture(), minLng.capture(), maxLng.capture()))
                 .thenReturn(List.of());
 
-        driverService.findAvailableDrivers(21.0285, 105.8542, 5.0);
+        driverService.findAvailableDrivers(21.0285, 105.8542, 5.0, 20);
 
         assertEquals(21.0285 - 5.0 / 111.32, minLat.getValue().doubleValue(), 1e-9);
         assertEquals(21.0285 + 5.0 / 111.32, maxLat.getValue().doubleValue(), 1e-9);
@@ -326,16 +310,17 @@ class DriverServiceImplTest {
     }
 
     @Test
-    @DisplayName("findAvailableDrivers with only latitude or only longitude throws 400")
-    void findAvailableDrivers_onlyOneCoordinate_throwsValidationError() {
-        BusinessException onlyLat = assertThrows(BusinessException.class,
-                () -> driverService.findAvailableDrivers(21.0, null, 5.0));
-        BusinessException onlyLng = assertThrows(BusinessException.class,
-                () -> driverService.findAvailableDrivers(null, 105.8, 5.0));
+    @DisplayName("findAvailableDrivers returns at most limit drivers, the nearest ones")
+    void findAvailableDrivers_limit_keepsNearest() {
+        Driver hangBai = availableDriver("Hang Bai", 21.0190, 105.8520);      // 1.08 km
+        Driver trangTien = availableDriver("Trang Tien", 21.0250, 105.8570);  // 0.49 km
+        when(driverRepository.findByStatusAndCurrentLatBetweenAndCurrentLngBetween(
+                eq(DriverStatus.AVAILABLE), any(), any(), any(), any()))
+                .thenReturn(List.of(hangBai, trangTien));
 
-        assertEquals(HttpStatus.BAD_REQUEST, onlyLat.getStatus());
-        assertEquals("VALIDATION_ERROR", onlyLng.getCode());
-        verifyNoInteractions(driverRepository);
+        List<AvailableDriverResponse> result = driverService.findAvailableDrivers(21.0285, 105.8542, 5.0, 1);
+
+        assertEquals(List.of("Trang Tien"), result.stream().map(AvailableDriverResponse::getFullName).toList());
     }
 
     // ---- PATCH /api/drivers/{id}/status ----
@@ -468,7 +453,7 @@ class DriverServiceImplTest {
         when(driverRepository.findById(driver.getDriverId())).thenReturn(Optional.of(driver));
         when(vehicleRepository.findByDriver(driver)).thenReturn(List.of(inactive, active));
 
-        DriverDetailResponse response = driverService.getDriver(driver.getDriverId());
+        DriverDetailResponse response = driverService.getDriver(driver.getDriverId(), PASSENGER_ID);
 
         assertEquals(driver.getDriverId(), response.getId());
         assertEquals("Tran Van Binh", response.getFullName());
@@ -484,10 +469,26 @@ class DriverServiceImplTest {
         when(driverRepository.findById(USER_ID)).thenReturn(Optional.of(driver));
         when(vehicleRepository.findByDriver(driver)).thenReturn(List.of());
 
-        DriverDetailResponse response = driverService.getDriver(USER_ID);
+        DriverDetailResponse response = driverService.getDriver(USER_ID, USER_ID);
 
         assertNull(response.getVehicle());
         assertNull(response.getLocation());
+    }
+
+    @Test
+    @DisplayName("getDriver hides an OFFLINE driver's position from other users but shows it to the driver")
+    void getDriver_offlineDriver_positionOnlyForThatDriver() {
+        Driver driver = availableDriver("Off Duty", 21.0250, 105.8570);
+        driver.setStatus(DriverStatus.OFFLINE);
+        when(driverRepository.findById(driver.getDriverId())).thenReturn(Optional.of(driver));
+        when(vehicleRepository.findByDriver(driver)).thenReturn(List.of());
+
+        DriverDetailResponse forOthers = driverService.getDriver(driver.getDriverId(), PASSENGER_ID);
+        DriverDetailResponse forSelf = driverService.getDriver(driver.getDriverId(), driver.getDriverId());
+
+        assertNull(forOthers.getLocation());
+        assertEquals(DriverStatus.OFFLINE, forOthers.getStatus());
+        assertEquals(21.0250, forSelf.getLocation().getLatitude());
     }
 
     @Test
@@ -495,7 +496,7 @@ class DriverServiceImplTest {
     void getDriver_unknownId_throwsNotFound() {
         when(driverRepository.findById(USER_ID)).thenReturn(Optional.empty());
 
-        BusinessException ex = assertThrows(BusinessException.class, () -> driverService.getDriver(USER_ID));
+        BusinessException ex = assertThrows(BusinessException.class, () -> driverService.getDriver(USER_ID, PASSENGER_ID));
 
         assertEquals("DRIVER_NOT_FOUND", ex.getCode());
     }

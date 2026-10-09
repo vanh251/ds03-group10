@@ -272,7 +272,7 @@ Get driver details: profile, active vehicle and last known position.
 }
 ```
 
-`id` is the driver's user id (no separate `userId` field). `vehicle` / `location` are `null` when the driver has no active vehicle / never reported a position.
+`id` is the driver's user id (no separate `userId` field). `vehicle` is `null` when the driver has no active vehicle. `location` is `null` when the driver never reported a position, and also when the driver is `OFFLINE` and the caller is someone else: an off-duty driver's last position (often home) is shown only to that driver.
 
 **Errors:**
 - `400 INVALID_PARAMETER` – `{id}` is not a UUID
@@ -283,19 +283,18 @@ Get driver details: profile, active vehicle and last known position.
 
 ### GET /api/drivers/available
 
-List AVAILABLE drivers. With `latitude` + `longitude`: only drivers within `radiusKm` (Haversine distance), nearest first. Without them: every AVAILABLE driver, `distanceKm` = `null`.
+List AVAILABLE drivers near a point: the `limit` nearest drivers within `radiusKm` (Haversine distance), nearest first. Same search as `/nearby`, plus the `version` and `status` Matching Service needs.
 
-**Auth required:** No token checked for now. Called by Matching Service, which has no service credential yet; once it sends one, this becomes "PASSENGER or internal".
+**Auth required:** No token checked for now. Called by Matching Service, which has no service credential yet; once it sends one, this becomes "PASSENGER or internal". Until then the gateway also exposes it publicly, so the required point and the `radiusKm` / `limit` caps keep a caller from listing the whole fleet in one request.
 
 **Query Parameters:**
 
 | Param | Type | Required | Description |
 |---|---|---|---|
-| latitude | double | No* | Reference point latitude, -90..90 |
-| longitude | double | No* | Reference point longitude, -180..180 |
+| latitude | double | Yes | Reference point (pickup) latitude, -90..90 |
+| longitude | double | Yes | Reference point (pickup) longitude, -180..180 |
 | radiusKm | double | No | Search radius in km (default: 5.0, max 50) |
-
-\* `latitude` and `longitude` must be given together.
+| limit | int | No | Maximum number of drivers (default: 20, 1..50) |
 
 **Response 200 OK:**
 ```json
@@ -315,10 +314,10 @@ List AVAILABLE drivers. With `latitude` + `longitude`: only drivers within `radi
 ]
 ```
 
-`version` is the value Matching Service sends as `expectedVersion` to `POST /api/drivers/{id}/reserve` (CAS). `location` is `null` for a driver that never reported a position (only possible without a reference point).
+`version` is the value Matching Service sends as `expectedVersion` to `POST /api/drivers/{id}/reserve` (CAS). Drivers that never reported a position are not listed.
 
 **Errors:**
-- `400 VALIDATION_ERROR` – Coordinate out of range, only one coordinate given, `radiusKm` ≤ 0 or > 50
+- `400 VALIDATION_ERROR` – Missing `latitude` / `longitude`, coordinate out of range, `radiusKm` ≤ 0 or > 50, `limit` outside 1..50
 - `400 INVALID_PARAMETER` – Non-numeric parameter
 
 ---

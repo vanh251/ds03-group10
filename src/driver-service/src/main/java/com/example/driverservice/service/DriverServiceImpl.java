@@ -125,18 +125,9 @@ public class DriverServiceImpl implements DriverService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<AvailableDriverResponse> findAvailableDrivers(Double latitude, Double longitude, double radiusKm) {
-        if (latitude == null && longitude == null) {
-            return driverRepository.findByStatus(DriverStatus.AVAILABLE).stream()
-                    .map(driver -> driverMapper.toAvailableResponse(driver, null))
-                    .toList();
-        }
-        if (latitude == null || longitude == null) {
-            throw new BusinessException("latitude and longitude must be given together",
-                    HttpStatus.BAD_REQUEST, "VALIDATION_ERROR");
-        }
-
+    public List<AvailableDriverResponse> findAvailableDrivers(double latitude, double longitude, double radiusKm, int limit) {
         return availableWithin(latitude, longitude, radiusKm).stream()
+                .limit(limit)
                 .map(candidate -> driverMapper.toAvailableResponse(candidate.driver(), roundKm(candidate.distanceKm())))
                 .toList();
     }
@@ -212,13 +203,15 @@ public class DriverServiceImpl implements DriverService {
 
     @Override
     @Transactional(readOnly = true)
-    public DriverDetailResponse getDriver(UUID driverId) {
+    public DriverDetailResponse getDriver(UUID driverId, UUID callerId) {
         Driver driver = findDriver(driverId);
         Vehicle activeVehicle = vehicleRepository.findByDriver(driver).stream()
                 .filter(vehicle -> Boolean.TRUE.equals(vehicle.getActive()))
                 .findFirst()
                 .orElse(null);
-        return driverMapper.toDetailResponse(driver, activeVehicle);
+        // Off duty, the last position is often the driver's home, so only the driver may see it
+        boolean showLocation = driver.getStatus() != DriverStatus.OFFLINE || driverId.equals(callerId);
+        return driverMapper.toDetailResponse(driver, activeVehicle, showLocation);
     }
 
     private static boolean isDriverSettable(DriverStatus status) {

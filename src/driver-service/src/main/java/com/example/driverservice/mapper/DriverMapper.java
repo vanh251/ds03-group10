@@ -36,13 +36,13 @@ public class DriverMapper {
                 .build();
     }
 
-    public DriverDetailResponse toDetailResponse(Driver driver, Vehicle activeVehicle) {
+    public DriverDetailResponse toDetailResponse(Driver driver, Vehicle activeVehicle, boolean showLocation) {
         return DriverDetailResponse.builder()
                 .id(driver.getDriverId())
                 .fullName(driver.getFullName())
                 .status(driver.getStatus())
                 .vehicle(activeVehicle != null ? toVehicleResponse(activeVehicle) : null)
-                .location(toLocationResponse(driver))
+                .location(showLocation ? toLocationResponse(driver) : null)
                 .build();
     }
 

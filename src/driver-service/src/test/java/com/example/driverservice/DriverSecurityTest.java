@@ -56,9 +56,10 @@ class DriverSecurityTest {
     @Test
     @DisplayName("GET /api/drivers/available is reachable without a token (matching-service calls it without one)")
     void getAvailable_withoutToken_returns200() throws Exception {
-        when(driverRepository.findByStatus(DriverStatus.AVAILABLE)).thenReturn(List.of());
+        when(driverRepository.findByStatusAndCurrentLatBetweenAndCurrentLngBetween(any(), any(), any(), any(), any()))
+                .thenReturn(List.of());
 
-        mockMvc.perform(get("/api/drivers/available"))
+        mockMvc.perform(get("/api/drivers/available").param("latitude", "21.0285").param("longitude", "105.8542"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").isArray());
     }

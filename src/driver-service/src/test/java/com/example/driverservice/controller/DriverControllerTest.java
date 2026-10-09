@@ -36,10 +36,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -78,7 +76,7 @@ class DriverControllerTest {
     @Test
     @DisplayName("GET /api/drivers/available returns the fields matching-service reads (id, fullName, status, location, distanceKm, version)")
     void getAvailableDrivers_withPoint_returnsMatchingFields() throws Exception {
-        when(driverService.findAvailableDrivers(21.0285, 105.8542, 3.0)).thenReturn(List.of(AvailableDriverResponse.builder()
+        when(driverService.findAvailableDrivers(21.0285, 105.8542, 3.0, 20)).thenReturn(List.of(AvailableDriverResponse.builder()
                 .id(DRIVER_ID)
                 .fullName("Tran Van Binh")
                 .status(DriverStatus.AVAILABLE)
@@ -101,19 +99,31 @@ class DriverControllerTest {
     }
 
     @Test
-    @DisplayName("GET /api/drivers/available without parameters uses no point and the default 5 km radius")
-    void getAvailableDrivers_noParams_usesDefaults() throws Exception {
-        when(driverService.findAvailableDrivers(null, null, 5.0)).thenReturn(List.of());
+    @DisplayName("GET /api/drivers/available uses the default 5 km radius and limit 20")
+    void getAvailableDrivers_pointOnly_usesDefaults() throws Exception {
+        when(driverService.findAvailableDrivers(21.0285, 105.8542, 5.0, 20)).thenReturn(List.of());
 
-        mockMvc.perform(get("/api/drivers/available"))
+        mockMvc.perform(get("/api/drivers/available").param("latitude", "21.0285").param("longitude", "105.8542"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").isArray());
 
-        verify(driverService).findAvailableDrivers(isNull(), isNull(), eq(5.0));
+        verify(driverService).findAvailableDrivers(21.0285, 105.8542, 5.0, 20);
+    }
+
+    @ParameterizedTest(name = "only {0}")
+    @CsvSource({"latitude, 21.0", "longitude, 105.8"})
+    @DisplayName("GET /api/drivers/available without both coordinates returns 400 VALIDATION_ERROR")
+    void getAvailableDrivers_missingCoordinate_returns400(String name, String value) throws Exception {
+        mockMvc.perform(get("/api/drivers/available").param(name, value))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+
+        verifyNoInteractions(driverService);
     }
 
     @ParameterizedTest(name = "{0}={1}")
-    @CsvSource({"latitude, 91", "latitude, -90.5", "longitude, 180.1", "radiusKm, 0", "radiusKm, -1", "radiusKm, 50.5"})
+    @CsvSource({"latitude, 91", "latitude, -90.5", "longitude, 180.1", "radiusKm, 0", "radiusKm, -1", "radiusKm, 50.5",
+            "limit, 0", "limit, 51"})
     @DisplayName("GET /api/drivers/available with an out-of-range parameter returns 400 VALIDATION_ERROR")
     void getAvailableDrivers_outOfRange_returns400(String name, String value) throws Exception {
         var request = get("/api/drivers/available").param(name, value);
@@ -124,7 +134,7 @@ class DriverControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
 
-        verify(driverService, never()).findAvailableDrivers(any(), any(), anyDouble());
+        verify(driverService, never()).findAvailableDrivers(anyDouble(), anyDouble(), anyDouble(), anyInt());
     }
 
     @Test
@@ -240,7 +250,7 @@ class DriverControllerTest {
     @Test
     @DisplayName("GET /api/drivers/{id} returns profile, vehicle and location")
     void getDriver_existingDriver_returns200() throws Exception {
-        when(driverService.getDriver(DRIVER_ID)).thenReturn(DriverDetailResponse.builder()
+        when(driverService.getDriver(DRIVER_ID, DRIVER_ID)).thenReturn(DriverDetailResponse.builder()
                 .id(DRIVER_ID)
                 .fullName("Tran Van Binh")
                 .status(DriverStatus.AVAILABLE)
@@ -261,7 +271,7 @@ class DriverControllerTest {
     @Test
     @DisplayName("GET /api/drivers/{id} for an unknown driver returns 404 DRIVER_NOT_FOUND")
     void getDriver_unknown_returns404() throws Exception {
-        when(driverService.getDriver(DRIVER_ID))
+        when(driverService.getDriver(DRIVER_ID, DRIVER_ID))
                 .thenThrow(new com.example.driverservice.exception.ResourceNotFoundException("Driver not found", "DRIVER_NOT_FOUND"));
 
         mockMvc.perform(get("/api/drivers/{id}", DRIVER_ID))

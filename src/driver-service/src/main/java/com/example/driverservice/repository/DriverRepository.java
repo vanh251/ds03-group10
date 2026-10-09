@@ -16,8 +16,6 @@ import java.util.UUID;
 @Repository
 public interface DriverRepository extends JpaRepository<Driver, UUID> {
 
-    List<Driver> findByStatus(DriverStatus status);
-
     // BETWEEN never matches NULL, so drivers that never reported a position are left out
     List<Driver> findByStatusAndCurrentLatBetweenAndCurrentLngBetween(
             DriverStatus status, BigDecimal minLat, BigDecimal maxLat, BigDecimal minLng, BigDecimal maxLng);

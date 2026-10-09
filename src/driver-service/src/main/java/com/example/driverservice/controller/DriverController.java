@@ -46,32 +46,36 @@ public class DriverController {
 
     private final DriverService driverService;
 
-    @Operation(summary = "List AVAILABLE drivers",
-            description = "With latitude and longitude: drivers within radiusKm, nearest first, with distanceKm. "
-                    + "Without them: every AVAILABLE driver. Each item carries the version used for the CAS reservation. "
-                    + "Called by matching-service without a token.")
+    @Operation(summary = "List AVAILABLE drivers near a point",
+            description = "The nearest AVAILABLE drivers within radiusKm of the point, nearest first, at most limit. "
+                    + "Each item carries the version used for the CAS reservation. "
+                    + "Called by matching-service without a token, so the point and the caps keep it from listing the whole fleet.")
     @SecurityRequirements
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Available drivers",
                     content = @Content(array = @ArraySchema(schema = @Schema(implementation = AvailableDriverResponse.class)))),
-            @ApiResponse(responseCode = "400", description = "Coordinates out of range, only one of them given, or bad radius",
+            @ApiResponse(responseCode = "400", description = "Missing or out-of-range parameter",
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
     @GetMapping("/available")
     public ResponseEntity<List<AvailableDriverResponse>> getAvailableDrivers(
             @Parameter(description = "Reference point latitude", example = "21.0285")
-            @RequestParam(required = false)
+            @RequestParam
             @DecimalMin(value = "-90.0", message = "latitude must be between -90 and 90")
-            @DecimalMax(value = "90.0", message = "latitude must be between -90 and 90") Double latitude,
+            @DecimalMax(value = "90.0", message = "latitude must be between -90 and 90") double latitude,
             @Parameter(description = "Reference point longitude", example = "105.8542")
-            @RequestParam(required = false)
+            @RequestParam
             @DecimalMin(value = "-180.0", message = "longitude must be between -180 and 180")
-            @DecimalMax(value = "180.0", message = "longitude must be between -180 and 180") Double longitude,
+            @DecimalMax(value = "180.0", message = "longitude must be between -180 and 180") double longitude,
             @Parameter(description = "Search radius in km (max 50)", example = "5.0")
             @RequestParam(defaultValue = "5.0")
             @Positive(message = "radiusKm must be greater than 0")
-            @DecimalMax(value = "50.0", message = "radiusKm must be at most 50") double radiusKm) {
-        return ResponseEntity.ok(driverService.findAvailableDrivers(latitude, longitude, radiusKm));
+            @DecimalMax(value = "50.0", message = "radiusKm must be at most 50") double radiusKm,
+            @Parameter(description = "Maximum number of drivers (1-50)", example = "20")
+            @RequestParam(defaultValue = "20")
+            @Min(value = 1, message = "limit must be between 1 and 50")
+            @Max(value = 50, message = "limit must be between 1 and 50") int limit) {
+        return ResponseEntity.ok(driverService.findAvailableDrivers(latitude, longitude, radiusKm, limit));
     }
 
     @Operation(summary = "Find AVAILABLE drivers near a pickup point",
@@ -158,7 +162,8 @@ public class DriverController {
     }
 
     @Operation(summary = "Get driver details",
-            description = "Profile, active vehicle and last known position. Any authenticated user.")
+            description = "Profile, active vehicle and last known position. Any authenticated user; "
+                    + "the position of an OFFLINE driver is shown only to that driver.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Driver found",
                     content = @Content(schema = @Schema(implementation = DriverDetailResponse.class))),
@@ -171,7 +176,8 @@ public class DriverController {
     })
     @GetMapping("/{id}")
     public ResponseEntity<DriverDetailResponse> getDriver(
-            @Parameter(description = "Driver id (= the driver's user id)") @PathVariable UUID id) {
-        return ResponseEntity.ok(driverService.getDriver(id));
+            @Parameter(description = "Driver id (= the driver's user id)") @PathVariable UUID id,
+            @Parameter(hidden = true) @AuthenticationPrincipal UUID callerId) {
+        return ResponseEntity.ok(driverService.getDriver(id, callerId));
     }
 }

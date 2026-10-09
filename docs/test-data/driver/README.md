@@ -37,9 +37,9 @@ Quyền truy cập:
 
 | Endpoint | Token cần có |
 |---|---|
-| `GET /api/drivers/available` | Không cần (matching-service gọi không kèm token) |
+| `GET /api/drivers/available` | Không cần (matching-service gọi không kèm token); bắt buộc `latitude` + `longitude`, tối đa `limit` (mặc định 20, ≤ 50) tài xế |
 | `GET /api/drivers/nearby` | `PASSENGER` |
-| `GET /api/drivers/{id}` | Bất kỳ role nào |
+| `GET /api/drivers/{id}` | Bất kỳ role nào; vị trí của tài xế `OFFLINE` chỉ trả cho chính tài xế đó, người khác thấy `location = null` |
 | `PATCH /api/drivers/{id}/status`, `/location` | `DRIVER` và `{id}` phải là chính mình → sai role `403 ACCESS_DENIED`, sửa hồ sơ người khác `403 NOT_OWN_RESOURCE` |
 
 ## Luồng demo (qua API Gateway :8080, hoặc gọi thẳng :8082 cho driver và :8081 cho identity)
