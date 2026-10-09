@@ -2,6 +2,7 @@ package com.example.driverservice.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.DynamicUpdate;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -15,6 +16,9 @@ import java.util.UUID;
  */
 @Entity
 @Table(name = "drivers")
+// UPDATE only the changed columns: a status change must not write back a position that a concurrent
+// location report (DriverRepository.updateLocation, which leaves version alone) has just replaced
+@DynamicUpdate
 @Getter
 @Setter
 @NoArgsConstructor

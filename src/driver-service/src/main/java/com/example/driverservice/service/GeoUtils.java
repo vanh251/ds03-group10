@@ -6,8 +6,10 @@ package com.example.driverservice.service;
 final class GeoUtils {
 
     static final double EARTH_RADIUS_KM = 6371.0;
-    // Length of one degree of latitude; one degree of longitude is this times cos(latitude)
-    static final double KM_PER_DEGREE = 111.32;
+    // Length of one degree of latitude on the same sphere as haversineKm (~111.195 km); longitude: this times cos(latitude)
+    static final double KM_PER_DEGREE = Math.toRadians(EARTH_RADIUS_KM);
+    // Widens the box by 1% so rounding never drops a driver that sits right on the radius
+    private static final double BOX_MARGIN = 1.01;
 
     private GeoUtils() {
     }
@@ -27,8 +29,8 @@ final class GeoUtils {
      * Haversine check. Its corners are farther than radiusKm, so results must still be filtered by distance.
      */
     static BoundingBox boundingBox(double lat, double lng, double radiusKm) {
-        double latDelta = radiusKm / KM_PER_DEGREE;
-        double lngDelta = radiusKm / (KM_PER_DEGREE * Math.cos(Math.toRadians(lat)));
+        double latDelta = BOX_MARGIN * radiusKm / KM_PER_DEGREE;
+        double lngDelta = BOX_MARGIN * radiusKm / (KM_PER_DEGREE * Math.cos(Math.toRadians(lat)));
         return new BoundingBox(lat - latDelta, lat + latDelta, lng - lngDelta, lng + lngDelta);
     }
 

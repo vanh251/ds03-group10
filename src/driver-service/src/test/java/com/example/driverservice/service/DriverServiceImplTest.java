@@ -303,10 +303,11 @@ class DriverServiceImplTest {
 
         driverService.findAvailableDrivers(21.0285, 105.8542, 5.0, 20);
 
-        assertEquals(21.0285 - 5.0 / 111.32, minLat.getValue().doubleValue(), 1e-9);
-        assertEquals(21.0285 + 5.0 / 111.32, maxLat.getValue().doubleValue(), 1e-9);
-        assertTrue(minLng.getValue().doubleValue() < 105.8542 - 5.0 / 111.32);
-        assertTrue(maxLng.getValue().doubleValue() > 105.8542 + 5.0 / 111.32);
+        GeoUtils.BoundingBox box = GeoUtils.boundingBox(21.0285, 105.8542, 5.0);
+        assertEquals(box.minLat(), minLat.getValue().doubleValue(), 1e-12);
+        assertEquals(box.maxLat(), maxLat.getValue().doubleValue(), 1e-12);
+        assertEquals(box.minLng(), minLng.getValue().doubleValue(), 1e-12);
+        assertEquals(box.maxLng(), maxLng.getValue().doubleValue(), 1e-12);
     }
 
     @Test

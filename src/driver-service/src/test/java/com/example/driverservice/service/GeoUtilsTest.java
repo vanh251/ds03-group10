@@ -33,11 +33,29 @@ class GeoUtilsTest {
         double radiusKm = 5.0;
         GeoUtils.BoundingBox box = GeoUtils.boundingBox(LAT, LNG, radiusKm);
 
-        assertEquals(LAT + radiusKm / GeoUtils.KM_PER_DEGREE, box.maxLat(), 1e-9);
-        assertEquals(LAT - radiusKm / GeoUtils.KM_PER_DEGREE, box.minLat(), 1e-9);
+        // Every edge lies at or beyond the radius as haversineKm measures it, and not much beyond
+        assertTrue(GeoUtils.haversineKm(LAT, LNG, box.maxLat(), LNG) >= radiusKm);
+        assertTrue(GeoUtils.haversineKm(LAT, LNG, box.minLat(), LNG) >= radiusKm);
+        assertTrue(GeoUtils.haversineKm(LAT, LNG, LAT, box.maxLng()) >= radiusKm);
+        assertTrue(GeoUtils.haversineKm(LAT, LNG, LAT, box.minLng()) >= radiusKm);
+        assertEquals(radiusKm, GeoUtils.haversineKm(LAT, LNG, box.maxLat(), LNG), 0.1);
+        assertEquals(radiusKm, GeoUtils.haversineKm(LAT, LNG, LAT, box.maxLng()), 0.1);
         // Longitude degrees are shorter away from the equator, so the box is wider in degrees than in latitude
         assertTrue(box.maxLng() - LNG > box.maxLat() - LAT);
-        assertEquals(radiusKm, GeoUtils.haversineKm(LAT, LNG, LAT, box.maxLng()), 0.05);
-        assertEquals(radiusKm, GeoUtils.haversineKm(LAT, LNG, box.maxLat(), LNG), 0.05);
+    }
+
+    @Test
+    @DisplayName("boundingBox keeps a driver just inside the radius due north and due east, even at 50 km")
+    void boundingBox_pointJustInsideRadius_isInsideBox() {
+        double radiusKm = 50.0;
+        GeoUtils.BoundingBox box = GeoUtils.boundingBox(LAT, LNG, radiusKm);
+        // ~49.99 km due north / due east: inside the radius, so the SQL pre-filter must not drop them
+        double northLat = LAT + 0.4496;
+        double eastLng = LNG + 0.4813;
+        assertTrue(GeoUtils.haversineKm(LAT, LNG, northLat, LNG) < radiusKm);
+        assertTrue(GeoUtils.haversineKm(LAT, LNG, LAT, eastLng) < radiusKm);
+
+        assertTrue(northLat <= box.maxLat());
+        assertTrue(eastLng <= box.maxLng());
     }
 }

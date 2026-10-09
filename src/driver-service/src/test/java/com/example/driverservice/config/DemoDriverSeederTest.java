@@ -124,7 +124,9 @@ class DemoDriverSeederTest {
     @Test
     @DisplayName("run continues with the next profile when another instance inserted one first")
     void run_concurrentInsert_continues() {
+        // Driver 1 is missing at the first check, then present after the failed insert
         when(driverRepository.existsById(any())).thenReturn(false);
+        when(driverRepository.existsById(DemoDriverSeeder.driverId(1))).thenReturn(false, true);
         when(driverRepository.saveAndFlush(any(Driver.class)))
                 .thenThrow(new DataIntegrityViolationException("duplicate key value violates unique constraint \"drivers_pkey\""))
                 .thenAnswer(invocation -> invocation.getArgument(0));
@@ -132,6 +134,21 @@ class DemoDriverSeederTest {
         assertDoesNotThrow(() -> seeder.run(null));
 
         verify(driverRepository, times(10)).saveAndFlush(any(Driver.class));
+        verify(vehicleRepository, times(9)).saveAndFlush(any(Vehicle.class));
+    }
+
+    @Test
+    @DisplayName("run keeps going when an insert fails for another reason and does not count that profile as present")
+    void run_insertRejected_continuesAndRechecks() {
+        when(driverRepository.existsById(any())).thenReturn(false);
+        when(driverRepository.saveAndFlush(any(Driver.class)))
+                .thenThrow(new DataIntegrityViolationException("null value in column \"user_id\" violates not-null constraint"))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        assertDoesNotThrow(() -> seeder.run(null));
+
+        // Checked once before the insert and once after it failed
+        verify(driverRepository, times(2)).existsById(DemoDriverSeeder.driverId(1));
         verify(vehicleRepository, times(9)).saveAndFlush(any(Vehicle.class));
     }
 }

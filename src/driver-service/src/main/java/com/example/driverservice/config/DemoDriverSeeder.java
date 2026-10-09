@@ -75,8 +75,10 @@ public class DemoDriverSeeder implements ApplicationRunner {
     @Override
     public void run(ApplicationArguments args) {
         int created = 0;
+        int failed = 0;
         for (DemoDriver demo : DEMO_DRIVERS) {
-            if (driverRepository.existsById(driverId(demo.number()))) {
+            UUID id = driverId(demo.number());
+            if (driverRepository.existsById(id)) {
                 continue;
             }
             try {
@@ -84,11 +86,18 @@ public class DemoDriverSeeder implements ApplicationRunner {
                 transactions.executeWithoutResult(status -> insert(demo));
                 created++;
             } catch (DataIntegrityViolationException ex) {
-                // Another driver-service instance inserted the same profile between the check and the insert
-                log.info("Demo driver {} was created by another instance, skipping", driverId(demo.number()));
+                if (driverRepository.existsById(id)) {
+                    // Another driver-service instance inserted the same profile between the check and the insert
+                    log.info("Demo driver {} was created by another instance, skipping", id);
+                } else {
+                    // e.g. the plate is taken by a real registration, or an old driver_db volume still has drivers.user_id
+                    log.warn("Demo driver {} could not be created: {}", id, ex.getMostSpecificCause().getMessage());
+                    failed++;
+                }
             }
         }
-        log.info("Demo driver seeding finished: created={}, alreadyPresent={}", created, DEMO_DRIVERS.size() - created);
+        log.info("Demo driver seeding finished: created={}, alreadyPresent={}, failed={}",
+                created, DEMO_DRIVERS.size() - created - failed, failed);
     }
 
     private void insert(DemoDriver demo) {
