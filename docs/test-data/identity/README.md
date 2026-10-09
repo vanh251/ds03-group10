@@ -7,24 +7,25 @@ Email nào đã tồn tại thì bỏ qua, nên khởi động lại service kh�
 
 Tất cả dùng chung mật khẩu `SEED_USER_PASSWORD` (mặc định `Demo@12345`). Đây là dữ liệu giả chỉ dùng cho local/demo: tắt bằng `SEED_DATA_ENABLED=false` ở môi trường khác.
 
-| # | Họ tên | Email | Role |
-|---|---|---|---|
-| 1 | Tran Van Binh | `driver01@ds03.test` | DRIVER |
-| 2 | Le Hoang Nam | `driver02@ds03.test` | DRIVER |
-| 3 | Pham Minh Tuan | `driver03@ds03.test` | DRIVER |
-| 4 | Hoang Duc Anh | `driver04@ds03.test` | DRIVER |
-| 5 | Vu Thi Lan | `driver05@ds03.test` | DRIVER |
-| 6 | Do Quang Huy | `driver06@ds03.test` | DRIVER |
-| 7 | Bui Van Long | `driver07@ds03.test` | DRIVER |
-| 8 | Dang Thi Mai | `driver08@ds03.test` | DRIVER |
-| 9 | Ngo Thanh Son | `driver09@ds03.test` | DRIVER |
-| 10 | Duong Van Khoa | `driver10@ds03.test` | DRIVER |
-| 11 | Nguyen Thi Hoa | `passenger01@ds03.test` | PASSENGER |
-| 12 | Ly Minh Chau | `passenger02@ds03.test` | PASSENGER |
-| 13 | Phan Gia Bao | `passenger03@ds03.test` | PASSENGER |
+`userId` là **cố định**. 10 tài xế có hồ sơ xe tương ứng bên `driver-service` với `driverId` = `userId` (xem `docs/test-data/driver/README.md`).
 
-`userId` là UUID do database sinh, mỗi môi trường sẽ khác nhau: lấy từ response của `POST /api/auth/login`.
-10 tài khoản seed ở trên **chưa có hồ sơ xe** bên `driver-service` (seeder chỉ ghi `identity_db`). Tài xế đăng ký qua `POST /api/auth/register/driver` thì có đủ cả hai.
+| # | Họ tên | Email | Role | userId (= driverId) |
+|---|---|---|---|---|
+| 1 | Tran Van Binh | `driver01@ds03.test` | DRIVER | `d0000000-0000-4000-8000-000000000001` |
+| 2 | Le Hoang Nam | `driver02@ds03.test` | DRIVER | `d0000000-0000-4000-8000-000000000002` |
+| 3 | Pham Minh Tuan | `driver03@ds03.test` | DRIVER | `d0000000-0000-4000-8000-000000000003` |
+| 4 | Hoang Duc Anh | `driver04@ds03.test` | DRIVER | `d0000000-0000-4000-8000-000000000004` |
+| 5 | Vu Thi Lan | `driver05@ds03.test` | DRIVER | `d0000000-0000-4000-8000-000000000005` |
+| 6 | Do Quang Huy | `driver06@ds03.test` | DRIVER | `d0000000-0000-4000-8000-000000000006` |
+| 7 | Bui Van Long | `driver07@ds03.test` | DRIVER | `d0000000-0000-4000-8000-000000000007` |
+| 8 | Dang Thi Mai | `driver08@ds03.test` | DRIVER | `d0000000-0000-4000-8000-000000000008` |
+| 9 | Ngo Thanh Son | `driver09@ds03.test` | DRIVER | `d0000000-0000-4000-8000-000000000009` |
+| 10 | Duong Van Khoa | `driver10@ds03.test` | DRIVER | `d0000000-0000-4000-8000-000000000010` |
+| 11 | Nguyen Thi Hoa | `passenger01@ds03.test` | PASSENGER | `a0000000-0000-4000-8000-000000000001` |
+| 12 | Ly Minh Chau | `passenger02@ds03.test` | PASSENGER | `a0000000-0000-4000-8000-000000000002` |
+| 13 | Phan Gia Bao | `passenger03@ds03.test` | PASSENGER | `a0000000-0000-4000-8000-000000000003` |
+
+> Nếu `identity_db` đã được seed bởi bản cũ (id ngẫu nhiên), seeder chỉ ghi cảnh báo và không đổi id. Xóa volume để seed lại: `docker compose down -v` (hoặc xóa riêng `identity_db_data` và `driver_db_data`).
 
 ## Request mẫu
 
