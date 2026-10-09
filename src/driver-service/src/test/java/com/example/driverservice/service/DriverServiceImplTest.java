@@ -3,6 +3,8 @@ package com.example.driverservice.service;
 import com.example.driverservice.dto.request.CreateDriverRequest;
 import com.example.driverservice.dto.request.VehicleRequest;
 import com.example.driverservice.dto.response.AvailableDriverResponse;
+import com.example.driverservice.dto.response.DriverDetailResponse;
+import com.example.driverservice.dto.response.DriverLocationResponse;
 import com.example.driverservice.dto.response.DriverProfileResponse;
 import com.example.driverservice.dto.response.DriverStatusResponse;
 import com.example.driverservice.entity.Driver;
@@ -405,6 +407,95 @@ class DriverServiceImplTest {
                 () -> driverService.updateStatus(USER_ID, DriverStatus.AVAILABLE, USER_ID));
 
         assertEquals(HttpStatus.NOT_FOUND, ex.getStatus());
+        assertEquals("DRIVER_NOT_FOUND", ex.getCode());
+    }
+
+    // ---- PATCH /api/drivers/{id}/location ----
+
+    @Test
+    @DisplayName("updateLocation stores the position rounded to 6 decimals through the version-neutral update")
+    void updateLocation_ownProfile_storesRoundedPosition() {
+        ArgumentCaptor<BigDecimal> lat = ArgumentCaptor.forClass(BigDecimal.class);
+        ArgumentCaptor<BigDecimal> lng = ArgumentCaptor.forClass(BigDecimal.class);
+        when(driverRepository.updateLocation(eq(USER_ID), lat.capture(), lng.capture(), any(Instant.class))).thenReturn(1);
+
+        DriverLocationResponse response = driverService.updateLocation(USER_ID, 21.03000049, 105.8560006, USER_ID);
+
+        assertEquals(new BigDecimal("21.030000"), lat.getValue());
+        assertEquals(new BigDecimal("105.856001"), lng.getValue());
+        assertEquals(USER_ID, response.getId());
+        assertEquals(21.03, response.getLocation().getLatitude());
+        assertEquals(105.856001, response.getLocation().getLongitude());
+        assertNotNull(response.getLocation().getUpdatedAt());
+        // Never loads and saves the entity, which would bump @Version and break a pending reservation CAS
+        verify(driverRepository, never()).saveAndFlush(any());
+        verify(driverRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("updateLocation on another driver's profile throws 403 NOT_OWN_RESOURCE")
+    void updateLocation_otherDriver_throwsForbidden() {
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> driverService.updateLocation(USER_ID, 21.0, 105.8, UUID.randomUUID()));
+
+        assertEquals("NOT_OWN_RESOURCE", ex.getCode());
+        verifyNoInteractions(driverRepository);
+    }
+
+    @Test
+    @DisplayName("updateLocation for a user without a driver profile throws 404 DRIVER_NOT_FOUND")
+    void updateLocation_noProfile_throwsNotFound() {
+        when(driverRepository.updateLocation(eq(USER_ID), any(), any(), any())).thenReturn(0);
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> driverService.updateLocation(USER_ID, 21.0, 105.8, USER_ID));
+
+        assertEquals(HttpStatus.NOT_FOUND, ex.getStatus());
+        assertEquals("DRIVER_NOT_FOUND", ex.getCode());
+    }
+
+    // ---- GET /api/drivers/{id} ----
+
+    @Test
+    @DisplayName("getDriver returns profile, the active vehicle and the last position")
+    void getDriver_existingDriver_returnsDetails() {
+        Driver driver = availableDriver("Tran Van Binh", 21.0250, 105.8570);
+        Vehicle inactive = Vehicle.builder().driver(driver).licensePlate("30A-99999").make("Old").model("Car")
+                .color("Black").year((short) 2010).vehicleType(VehicleType.SEDAN).active(false).build();
+        Vehicle active = Vehicle.builder().driver(driver).licensePlate("30A-10001").make("Toyota").model("Vios")
+                .color("White").year((short) 2021).vehicleType(VehicleType.SEDAN).active(true).build();
+        when(driverRepository.findById(driver.getDriverId())).thenReturn(Optional.of(driver));
+        when(vehicleRepository.findByDriver(driver)).thenReturn(List.of(inactive, active));
+
+        DriverDetailResponse response = driverService.getDriver(driver.getDriverId());
+
+        assertEquals(driver.getDriverId(), response.getId());
+        assertEquals("Tran Van Binh", response.getFullName());
+        assertEquals(DriverStatus.AVAILABLE, response.getStatus());
+        assertEquals("30A-10001", response.getVehicle().getLicensePlate());
+        assertEquals(21.0250, response.getLocation().getLatitude());
+    }
+
+    @Test
+    @DisplayName("getDriver without vehicle or position returns them as null")
+    void getDriver_noVehicleNoPosition_returnsNulls() {
+        Driver driver = Driver.builder().driverId(USER_ID).fullName("New Driver").status(DriverStatus.OFFLINE).build();
+        when(driverRepository.findById(USER_ID)).thenReturn(Optional.of(driver));
+        when(vehicleRepository.findByDriver(driver)).thenReturn(List.of());
+
+        DriverDetailResponse response = driverService.getDriver(USER_ID);
+
+        assertNull(response.getVehicle());
+        assertNull(response.getLocation());
+    }
+
+    @Test
+    @DisplayName("getDriver with an unknown id throws 404 DRIVER_NOT_FOUND")
+    void getDriver_unknownId_throwsNotFound() {
+        when(driverRepository.findById(USER_ID)).thenReturn(Optional.empty());
+
+        BusinessException ex = assertThrows(BusinessException.class, () -> driverService.getDriver(USER_ID));
+
         assertEquals("DRIVER_NOT_FOUND", ex.getCode());
     }
 }

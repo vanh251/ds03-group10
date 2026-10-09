@@ -2,6 +2,8 @@ package com.example.driverservice.service;
 
 import com.example.driverservice.dto.request.CreateDriverRequest;
 import com.example.driverservice.dto.response.AvailableDriverResponse;
+import com.example.driverservice.dto.response.DriverDetailResponse;
+import com.example.driverservice.dto.response.DriverLocationResponse;
 import com.example.driverservice.dto.response.DriverProfileResponse;
 import com.example.driverservice.dto.response.DriverStatusResponse;
 import com.example.driverservice.entity.DriverStatus;
@@ -23,4 +25,9 @@ public interface DriverService {
 
     /** Driver-initiated OFFLINE ⇄ AVAILABLE switch; callerId is the user id from the JWT. */
     DriverStatusResponse updateStatus(UUID driverId, DriverStatus target, UUID callerId);
+
+    /** Stores the driver's own position report; callerId is the user id from the JWT. */
+    DriverLocationResponse updateLocation(UUID driverId, double latitude, double longitude, UUID callerId);
+
+    DriverDetailResponse getDriver(UUID driverId);
 }

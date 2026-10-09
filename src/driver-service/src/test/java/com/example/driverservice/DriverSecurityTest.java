@@ -180,4 +180,45 @@ class DriverSecurityTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
     }
+
+    @Test
+    @DisplayName("PATCH location with a PASSENGER token returns 403 ACCESS_DENIED")
+    void updateLocation_passengerToken_returns403() throws Exception {
+        mockMvc.perform(patch("/api/drivers/{id}/location", DRIVER_ID)
+                        .header(HttpHeaders.AUTHORIZATION, TestTokens.bearer(TestTokens.token(DRIVER_ID, "PASSENGER")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"latitude\": 21.03, \"longitude\": 105.85}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
+    }
+
+    @Test
+    @DisplayName("PATCH own location with a DRIVER token returns 200")
+    void updateLocation_ownDriverToken_returns200() throws Exception {
+        when(driverRepository.updateLocation(any(), any(), any(), any())).thenReturn(1);
+
+        mockMvc.perform(patch("/api/drivers/{id}/location", DRIVER_ID)
+                        .header(HttpHeaders.AUTHORIZATION, TestTokens.bearer(TestTokens.token(DRIVER_ID, "DRIVER")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"latitude\": 21.03, \"longitude\": 105.85}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.location.latitude").value(21.03));
+    }
+
+    @Test
+    @DisplayName("GET /api/drivers/{id} without a token returns 401, with any role's token 200")
+    void getDriver_requiresAnyAuthenticatedUser() throws Exception {
+        Driver driver = Driver.builder().driverId(DRIVER_ID).fullName("Tran Van Binh").status(DriverStatus.AVAILABLE).build();
+        when(driverRepository.findById(DRIVER_ID)).thenReturn(Optional.of(driver));
+        when(vehicleRepository.findByDriver(driver)).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/drivers/{id}", DRIVER_ID))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("MISSING_TOKEN"));
+
+        mockMvc.perform(get("/api/drivers/{id}", DRIVER_ID)
+                        .header(HttpHeaders.AUTHORIZATION, TestTokens.bearer(TestTokens.token(UUID.randomUUID(), "PASSENGER"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.fullName").value("Tran Van Binh"));
+    }
 }

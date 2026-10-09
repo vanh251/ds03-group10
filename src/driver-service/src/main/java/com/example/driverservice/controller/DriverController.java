@@ -1,7 +1,10 @@
 package com.example.driverservice.controller;
 
 import com.example.driverservice.dto.request.UpdateDriverStatusRequest;
+import com.example.driverservice.dto.request.UpdateLocationRequest;
 import com.example.driverservice.dto.response.AvailableDriverResponse;
+import com.example.driverservice.dto.response.DriverDetailResponse;
+import com.example.driverservice.dto.response.DriverLocationResponse;
 import com.example.driverservice.dto.response.DriverStatusResponse;
 import com.example.driverservice.dto.response.ErrorResponse;
 import com.example.driverservice.service.DriverService;
@@ -93,5 +96,46 @@ public class DriverController {
             @Valid @RequestBody UpdateDriverStatusRequest request,
             @Parameter(hidden = true) @AuthenticationPrincipal UUID callerId) {
         return ResponseEntity.ok(driverService.updateStatus(id, request.getStatus(), callerId));
+    }
+
+    @Operation(summary = "Report own position (simulated GPS)",
+            description = "Stores the driver's current position and heartbeat. Does not change the driver's version, "
+                    + "so position reports never make a reservation fail. Requires a DRIVER token whose user id equals {id}.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Position stored",
+                    content = @Content(schema = @Schema(implementation = DriverLocationResponse.class))),
+            @ApiResponse(responseCode = "400", description = "Missing or out-of-range coordinates",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "401", description = "Missing, invalid or expired JWT",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "403", description = "Not a DRIVER token, or not the caller's own profile",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "404", description = "Driver profile not found",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    @PatchMapping("/{id}/location")
+    public ResponseEntity<DriverLocationResponse> updateLocation(
+            @Parameter(description = "Driver id (= the driver's user id)") @PathVariable UUID id,
+            @Valid @RequestBody UpdateLocationRequest request,
+            @Parameter(hidden = true) @AuthenticationPrincipal UUID callerId) {
+        return ResponseEntity.ok(driverService.updateLocation(id, request.getLatitude(), request.getLongitude(), callerId));
+    }
+
+    @Operation(summary = "Get driver details",
+            description = "Profile, active vehicle and last known position. Any authenticated user.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Driver found",
+                    content = @Content(schema = @Schema(implementation = DriverDetailResponse.class))),
+            @ApiResponse(responseCode = "400", description = "Id is not a UUID",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "401", description = "Missing, invalid or expired JWT",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "404", description = "Driver not found",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    @GetMapping("/{id}")
+    public ResponseEntity<DriverDetailResponse> getDriver(
+            @Parameter(description = "Driver id (= the driver's user id)") @PathVariable UUID id) {
+        return ResponseEntity.ok(driverService.getDriver(id));
     }
 }

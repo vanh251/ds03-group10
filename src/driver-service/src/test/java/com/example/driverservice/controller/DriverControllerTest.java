@@ -1,6 +1,10 @@
 package com.example.driverservice.controller;
 
 import com.example.driverservice.dto.response.AvailableDriverResponse;
+import com.example.driverservice.dto.response.DriverDetailResponse;
+import com.example.driverservice.dto.response.DriverLocationResponse;
+import com.example.driverservice.dto.response.VehicleResponse;
+import com.example.driverservice.entity.VehicleType;
 import com.example.driverservice.dto.response.DriverStatusResponse;
 import com.example.driverservice.dto.response.LocationResponse;
 import com.example.driverservice.entity.DriverStatus;
@@ -193,5 +197,82 @@ class DriverControllerTest {
                         .content("{\"status\": \"OFFLINE\"}"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("CONCURRENT_UPDATE"));
+    }
+
+    @Test
+    @DisplayName("PATCH /api/drivers/{id}/location returns the stored position")
+    void updateLocation_validRequest_returns200() throws Exception {
+        when(driverService.updateLocation(DRIVER_ID, 21.03, 105.856, DRIVER_ID)).thenReturn(DriverLocationResponse.builder()
+                .id(DRIVER_ID)
+                .location(LocationResponse.builder().latitude(21.03).longitude(105.856)
+                        .updatedAt(Instant.parse("2026-10-09T10:11:00Z")).build())
+                .build());
+
+        mockMvc.perform(patch("/api/drivers/{id}/location", DRIVER_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"latitude\": 21.03, \"longitude\": 105.856}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(DRIVER_ID.toString()))
+                .andExpect(jsonPath("$.location.latitude").value(21.03))
+                .andExpect(jsonPath("$.location.longitude").value(105.856))
+                .andExpect(jsonPath("$.location.updatedAt").exists());
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @CsvSource(delimiter = '|', value = {
+            "missing latitude | {\"longitude\": 105.8}",
+            "missing longitude | {\"latitude\": 21.0}",
+            "latitude 91 | {\"latitude\": 91, \"longitude\": 105.8}",
+            "longitude -181 | {\"latitude\": 21.0, \"longitude\": -181}"
+    })
+    @DisplayName("PATCH /api/drivers/{id}/location with missing or out-of-range coordinates returns 400 VALIDATION_ERROR")
+    void updateLocation_invalidBody_returns400(String caseName, String body) throws Exception {
+        mockMvc.perform(patch("/api/drivers/{id}/location", DRIVER_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+
+        verifyNoInteractions(driverService);
+    }
+
+    @Test
+    @DisplayName("GET /api/drivers/{id} returns profile, vehicle and location")
+    void getDriver_existingDriver_returns200() throws Exception {
+        when(driverService.getDriver(DRIVER_ID)).thenReturn(DriverDetailResponse.builder()
+                .id(DRIVER_ID)
+                .fullName("Tran Van Binh")
+                .status(DriverStatus.AVAILABLE)
+                .vehicle(VehicleResponse.builder().licensePlate("30A-10001").make("Toyota").model("Vios")
+                        .color("White").year(2021).vehicleType(VehicleType.SEDAN).build())
+                .location(LocationResponse.builder().latitude(21.025).longitude(105.857).build())
+                .build());
+
+        mockMvc.perform(get("/api/drivers/{id}", DRIVER_ID))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(DRIVER_ID.toString()))
+                .andExpect(jsonPath("$.fullName").value("Tran Van Binh"))
+                .andExpect(jsonPath("$.vehicle.licensePlate").value("30A-10001"))
+                .andExpect(jsonPath("$.vehicle.model").value("Vios"))
+                .andExpect(jsonPath("$.location.latitude").value(21.025));
+    }
+
+    @Test
+    @DisplayName("GET /api/drivers/{id} for an unknown driver returns 404 DRIVER_NOT_FOUND")
+    void getDriver_unknown_returns404() throws Exception {
+        when(driverService.getDriver(DRIVER_ID))
+                .thenThrow(new com.example.driverservice.exception.ResourceNotFoundException("Driver not found", "DRIVER_NOT_FOUND"));
+
+        mockMvc.perform(get("/api/drivers/{id}", DRIVER_ID))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("DRIVER_NOT_FOUND"));
+    }
+
+    @Test
+    @DisplayName("GET /api/drivers/{id} with an id that is not a UUID returns 400 INVALID_PARAMETER")
+    void getDriver_invalidId_returns400() throws Exception {
+        mockMvc.perform(get("/api/drivers/{id}", "d001"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"));
     }
 }

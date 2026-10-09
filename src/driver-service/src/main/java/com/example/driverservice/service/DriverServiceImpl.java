@@ -3,6 +3,9 @@ package com.example.driverservice.service;
 import com.example.driverservice.dto.request.CreateDriverRequest;
 import com.example.driverservice.dto.request.VehicleRequest;
 import com.example.driverservice.dto.response.AvailableDriverResponse;
+import com.example.driverservice.dto.response.DriverDetailResponse;
+import com.example.driverservice.dto.response.DriverLocationResponse;
+import com.example.driverservice.dto.response.LocationResponse;
 import com.example.driverservice.dto.response.DriverProfileResponse;
 import com.example.driverservice.dto.response.DriverStatusResponse;
 import com.example.driverservice.entity.Driver;
@@ -22,6 +25,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.Instant;
 import java.time.Year;
 import java.time.ZoneOffset;
 import java.util.Comparator;
@@ -166,6 +171,38 @@ public class DriverServiceImpl implements DriverService {
         Driver saved = driverRepository.saveAndFlush(driver);
         log.info("Driver status changed driverId={}, {} -> {}", driverId, current, target);
         return driverMapper.toStatusResponse(saved);
+    }
+
+    @Override
+    @Transactional
+    public DriverLocationResponse updateLocation(UUID driverId, double latitude, double longitude, UUID callerId) {
+        requireOwnProfile(driverId, callerId);
+        // drivers.current_lat/current_lng are DECIMAL(9, 6)
+        BigDecimal lat = BigDecimal.valueOf(latitude).setScale(6, RoundingMode.HALF_UP);
+        BigDecimal lng = BigDecimal.valueOf(longitude).setScale(6, RoundingMode.HALF_UP);
+        Instant now = Instant.now();
+        if (driverRepository.updateLocation(driverId, lat, lng, now) == 0) {
+            throw new ResourceNotFoundException("Driver not found", "DRIVER_NOT_FOUND");
+        }
+        return DriverLocationResponse.builder()
+                .id(driverId)
+                .location(LocationResponse.builder()
+                        .latitude(lat.doubleValue())
+                        .longitude(lng.doubleValue())
+                        .updatedAt(now)
+                        .build())
+                .build();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public DriverDetailResponse getDriver(UUID driverId) {
+        Driver driver = findDriver(driverId);
+        Vehicle activeVehicle = vehicleRepository.findByDriver(driver).stream()
+                .filter(vehicle -> Boolean.TRUE.equals(vehicle.getActive()))
+                .findFirst()
+                .orElse(null);
+        return driverMapper.toDetailResponse(driver, activeVehicle);
     }
 
     private static boolean isDriverSettable(DriverStatus status) {

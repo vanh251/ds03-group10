@@ -136,7 +136,9 @@ CREATE TABLE drivers (
     current_lng         DECIMAL(9, 6),
     last_heartbeat_at   TIMESTAMPTZ,            -- used to detect stale/offline drivers
 
-    -- OCC — incremented on every UPDATE
+    -- OCC — incremented on every state change (status, reservation fields).
+    -- Position reports (PATCH /location) update only current_lat/current_lng/last_heartbeat_at
+    -- and do NOT bump it, so frequent heartbeats never make a reservation CAS fail.
     version             INTEGER      NOT NULL DEFAULT 1,
 
     -- Auditing

@@ -1,6 +1,7 @@
 package com.example.driverservice.mapper;
 
 import com.example.driverservice.dto.response.AvailableDriverResponse;
+import com.example.driverservice.dto.response.DriverDetailResponse;
 import com.example.driverservice.dto.response.DriverProfileResponse;
 import com.example.driverservice.dto.response.DriverStatusResponse;
 import com.example.driverservice.dto.response.LocationResponse;
@@ -31,6 +32,16 @@ public class DriverMapper {
                 .location(toLocationResponse(driver))
                 .distanceKm(distanceKm)
                 .version(driver.getVersion())
+                .build();
+    }
+
+    public DriverDetailResponse toDetailResponse(Driver driver, Vehicle activeVehicle) {
+        return DriverDetailResponse.builder()
+                .id(driver.getDriverId())
+                .fullName(driver.getFullName())
+                .status(driver.getStatus())
+                .vehicle(activeVehicle != null ? toVehicleResponse(activeVehicle) : null)
+                .location(toLocationResponse(driver))
                 .build();
     }
 

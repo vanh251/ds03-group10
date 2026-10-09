@@ -245,29 +245,39 @@ Get user profile.
 
 ### GET /api/drivers/{id}
 
-Get driver details.
+Get driver details: profile, active vehicle and last known position.
 
-**Auth required:** Yes
+**Auth required:** Yes (any role)
 
 **Response 200 OK:**
 ```json
 {
-  "id": "d001",
-  "userId": "a1b2c3d4-...",
-  "fullName": "Tran Van B",
+  "id": "d0000000-0000-4000-8000-000000000001",
+  "fullName": "Tran Van Binh",
   "status": "AVAILABLE",
   "vehicle": {
-    "licensePlate": "29A-12345",
-    "model": "Toyota Vios",
-    "color": "White"
+    "vehicleId": "7c9e6679-...",
+    "licensePlate": "30A-10001",
+    "make": "Toyota",
+    "model": "Vios",
+    "color": "White",
+    "year": 2021,
+    "vehicleType": "SEDAN"
   },
   "location": {
-    "latitude": 21.0285,
-    "longitude": 105.8542,
+    "latitude": 21.025,
+    "longitude": 105.857,
     "updatedAt": "2026-09-30T10:05:00Z"
   }
 }
 ```
+
+`id` is the driver's user id (no separate `userId` field). `vehicle` / `location` are `null` when the driver has no active vehicle / never reported a position.
+
+**Errors:**
+- `400 INVALID_PARAMETER` – `{id}` is not a UUID
+- `401` – Missing, invalid or expired JWT
+- `404 DRIVER_NOT_FOUND` – No driver with this id
 
 ---
 
@@ -416,10 +426,12 @@ Update driver GPS location (simulated).
 }
 ```
 
+Stored with 6 decimals (`DECIMAL(9, 6)`) together with `last_heartbeat_at`. A position report does **not** change the driver's `version`, so the app can report every few seconds without making a pending reservation (CAS on `version`) fail.
+
 **Response 200 OK:**
 ```json
 {
-  "id": "d001",
+  "id": "d0000000-0000-4000-8000-000000000001",
   "location": {
     "latitude": 21.0300,
     "longitude": 105.8560,
@@ -427,6 +439,12 @@ Update driver GPS location (simulated).
   }
 }
 ```
+
+**Errors:**
+- `400 VALIDATION_ERROR` – Missing coordinate, latitude outside -90..90 or longitude outside -180..180
+- `401` – Missing, invalid or expired JWT
+- `403 ACCESS_DENIED` / `NOT_OWN_RESOURCE` – Not a DRIVER token / not the caller's own profile
+- `404 DRIVER_NOT_FOUND` – The account has no driver profile
 
 ---
 
