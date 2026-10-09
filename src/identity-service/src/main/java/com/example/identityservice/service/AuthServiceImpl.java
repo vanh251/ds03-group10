@@ -66,6 +66,7 @@ public class AuthServiceImpl implements AuthService {
         try {
             profile = driverServiceClient.createDriver(CreateDriverRequest.builder()
                     .userId(userId)
+                    .fullName(user.getFullName())
                     .licenseNumber(request.getLicenseNumber())
                     .vehicle(request.getVehicle())
                     .build());

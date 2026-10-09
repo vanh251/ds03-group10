@@ -19,11 +19,12 @@ import java.util.UUID;
 @Schema(description = "Driver profile with its vehicle")
 public class DriverProfileResponse {
 
-    @Schema(description = "Driver identifier", example = "3fa85f64-5717-4562-b3fc-2c963f66afa6")
+    @Schema(description = "Driver identifier, equal to the driver's user id in identity-service",
+            example = "550e8400-e29b-41d4-a716-446655440000")
     private UUID driverId;
 
-    @Schema(description = "User id in identity-service", example = "550e8400-e29b-41d4-a716-446655440000")
-    private UUID userId;
+    @Schema(description = "Full name of the driver", example = "Tran Van B")
+    private String fullName;
 
     @Schema(description = "Availability status; a new profile starts OFFLINE", example = "OFFLINE")
     private DriverStatus status;

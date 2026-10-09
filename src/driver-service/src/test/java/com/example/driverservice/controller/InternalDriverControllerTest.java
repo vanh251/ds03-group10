@@ -80,8 +80,13 @@ class InternalDriverControllerTest {
 
     /** Builds a JSON body; a null value leaves the field out entirely. */
     private static String body(UUID userId, String licenseNumber, Map<String, Object> vehicle) {
+        return body(userId, "Tran Van B", licenseNumber, vehicle);
+    }
+
+    private static String body(UUID userId, String fullName, String licenseNumber, Map<String, Object> vehicle) {
         Map<String, Object> fields = new LinkedHashMap<>();
         if (userId != null) fields.put("userId", userId.toString());
+        if (fullName != null) fields.put("fullName", fullName);
         if (licenseNumber != null) fields.put("licenseNumber", licenseNumber);
         if (vehicle != null) fields.put("vehicle", vehicle);
         return JSON.writeValueAsString(fields);
@@ -93,8 +98,8 @@ class InternalDriverControllerTest {
 
     private DriverProfileResponse profile() {
         return DriverProfileResponse.builder()
-                .driverId(UUID.randomUUID())
-                .userId(USER_ID)
+                .driverId(USER_ID)
+                .fullName("Tran Van B")
                 .status(DriverStatus.OFFLINE)
                 .licenseNumber("012345678901")
                 .vehicle(VehicleResponse.builder()
@@ -118,8 +123,9 @@ class InternalDriverControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(validBody("29A-12345")))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.driverId").value(response.getDriverId().toString()))
-                .andExpect(jsonPath("$.userId").value(USER_ID.toString()))
+                .andExpect(jsonPath("$.driverId").value(USER_ID.toString()))
+                .andExpect(jsonPath("$.fullName").value("Tran Van B"))
+                .andExpect(jsonPath("$.userId").doesNotExist())
                 .andExpect(jsonPath("$.status").value("OFFLINE"))
                 .andExpect(jsonPath("$.vehicle.licensePlate").value("29A-12345"))
                 .andExpect(jsonPath("$.vehicle.vehicleType").value("SEDAN"));
@@ -127,6 +133,7 @@ class InternalDriverControllerTest {
         ArgumentCaptor<CreateDriverRequest> captor = ArgumentCaptor.forClass(CreateDriverRequest.class);
         verify(driverService).createDriver(captor.capture());
         assertEquals(USER_ID, captor.getValue().getUserId());
+        assertEquals("Tran Van B", captor.getValue().getFullName());
         assertEquals(2022, captor.getValue().getVehicle().getYear());
     }
 
@@ -171,6 +178,8 @@ class InternalDriverControllerTest {
     static Stream<Arguments> invalidPayloads() {
         return Stream.of(
                 Arguments.of("missing userId", body(null, "012345678901", vehicle("29A-12345", 2022, "SEDAN"))),
+                Arguments.of("missing fullName", body(USER_ID, null, "012345678901", vehicle("29A-12345", 2022, "SEDAN"))),
+                Arguments.of("blank fullName", body(USER_ID, "  ", "012345678901", vehicle("29A-12345", 2022, "SEDAN"))),
                 Arguments.of("license number 11 digits", body(USER_ID, "01234567890", vehicle("29A-12345", 2022, "SEDAN"))),
                 Arguments.of("license number with letters", body(USER_ID, "01234567890A", vehicle("29A-12345", 2022, "SEDAN"))),
                 Arguments.of("missing vehicle", body(USER_ID, "012345678901", null)),

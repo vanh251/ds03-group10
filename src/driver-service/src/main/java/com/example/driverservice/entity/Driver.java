@@ -8,11 +8,13 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * Driver profile (docs/database_schema.md, table drivers). user_id is a soft reference to identity_db.users.
+ * Driver profile (docs/database_schema.md, table drivers).
+ * driver_id is the driver's identity user id (soft reference to identity_db.users.user_id), assigned at
+ * registration rather than generated: one profile per user, and the same id appears in the JWT (sub),
+ * X-User-Id, URLs (/api/drivers/{id}) and events (driverId).
  */
 @Entity
-@Table(name = "drivers",
-        uniqueConstraints = @UniqueConstraint(name = Driver.UQ_USER_ID, columnNames = "user_id"))
+@Table(name = "drivers")
 @Getter
 @Setter
 @NoArgsConstructor
@@ -20,15 +22,16 @@ import java.util.UUID;
 @Builder
 public class Driver {
 
-    public static final String UQ_USER_ID = "uq_drivers_user_id";
+    /** PostgreSQL's default name for the primary key constraint of this table. */
+    public static final String PRIMARY_KEY = "drivers_pkey";
 
     @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
     @Column(name = "driver_id", updatable = false, nullable = false)
     private UUID driverId;
 
-    @Column(name = "user_id", nullable = false, updatable = false)
-    private UUID userId;
+    // Copy of identity_db.users.full_name taken at registration, so driver lists need no call to identity-service
+    @Column(name = "full_name", nullable = false, length = 100)
+    private String fullName;
 
     @Column(name = "license_number", nullable = false, length = 50)
     private String licenseNumber;

@@ -17,6 +17,7 @@ import java.util.UUID;
 public class CreateDriverRequest {
 
     private UUID userId;
+    private String fullName;
     private String licenseNumber;
     private VehicleRequest vehicle;
 }

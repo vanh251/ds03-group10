@@ -105,9 +105,13 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 --   rowCount = 0 → CONFLICT → 409 DRIVER_ALREADY_RESERVED
 --   rowCount = 1 → SUCCESS → proceed to Matching
 --
+-- driver_id IS the driver's identity user id (soft ref → db_identity.users.user_id).
+-- It is assigned at registration (POST /api/auth/register/driver), not generated, so one
+-- identity user has at most one driver profile and the same id is used everywhere: JWT `sub`,
+-- X-User-Id, /api/drivers/{id}, matching/trip `driverId` and every event's `driverId`.
 CREATE TABLE drivers (
-    driver_id           UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id             UUID        NOT NULL,   -- soft ref → db_identity.users.user_id
+    driver_id           UUID        PRIMARY KEY,   -- = db_identity.users.user_id (no default)
+    full_name           VARCHAR(100) NOT NULL,     -- copy of db_identity.users.full_name at registration
     license_number      VARCHAR(50)  NOT NULL,
 
     -- State machine (enum DriverStatus — CODING_CONVENTION §12.2):
@@ -140,10 +144,6 @@ CREATE TABLE drivers (
     updated_at          TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 
--- One driver profile per identity user; also the fast lookup by identity cross-reference.
--- Driver registration (POST /api/auth/register/driver) relies on it: a retried create gets
--- 409 DRIVER_PROFILE_EXISTS and the compensation DELETE /internal/drivers?userId= hits one row.
-CREATE UNIQUE INDEX uq_drivers_user_id ON drivers(user_id);
 -- Matching Service queries AVAILABLE drivers frequently
 CREATE INDEX idx_drivers_status        ON drivers(status);
 -- Partial: reservation cleanup job (find expired leases)

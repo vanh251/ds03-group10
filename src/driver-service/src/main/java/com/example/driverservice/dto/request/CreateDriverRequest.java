@@ -5,6 +5,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -19,9 +20,14 @@ import java.util.UUID;
 @Schema(description = "Internal request from identity-service to create the driver profile of a newly registered DRIVER user")
 public class CreateDriverRequest {
 
-    @Schema(description = "User id from identity-service", example = "550e8400-e29b-41d4-a716-446655440000")
+    @Schema(description = "User id from identity-service; becomes the driver id", example = "550e8400-e29b-41d4-a716-446655440000")
     @NotNull(message = "User id is required")
     private UUID userId;
+
+    @Schema(description = "Full name of the driver, copied from the identity account", example = "Tran Van B")
+    @NotBlank(message = "Full name is required")
+    @Size(max = 100, message = "Full name must be at most 100 characters")
+    private String fullName;
 
     @Schema(description = "Driver license number (12 digits)", example = "012345678901")
     @NotBlank(message = "License number is required")

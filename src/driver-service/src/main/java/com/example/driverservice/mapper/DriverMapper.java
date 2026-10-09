@@ -12,7 +12,7 @@ public class DriverMapper {
     public DriverProfileResponse toProfileResponse(Driver driver, Vehicle vehicle) {
         return DriverProfileResponse.builder()
                 .driverId(driver.getDriverId())
-                .userId(driver.getUserId())
+                .fullName(driver.getFullName())
                 .status(driver.getStatus())
                 .licenseNumber(driver.getLicenseNumber())
                 .vehicle(toVehicleResponse(vehicle))

@@ -52,6 +52,7 @@ class DriverServiceClientTest {
     private static CreateDriverRequest createRequest() {
         return CreateDriverRequest.builder()
                 .userId(USER_ID)
+                .fullName("Tran Van B")
                 .licenseNumber("012345678901")
                 .vehicle(VehicleRequest.builder()
                         .licensePlate("29A-12345").make("Toyota").model("Vios").color("White")
@@ -70,6 +71,7 @@ class DriverServiceClientTest {
                 .andExpect(header(DriverServiceClient.INTERNAL_API_KEY_HEADER, "test-internal-api-key"))
                 .andExpect(header(CorrelationIdFilter.CORRELATION_ID_HEADER, "corr-123"))
                 .andExpect(jsonPath("$.userId").value(USER_ID.toString()))
+                .andExpect(jsonPath("$.fullName").value("Tran Van B"))
                 .andExpect(jsonPath("$.licenseNumber").value("012345678901"))
                 .andExpect(jsonPath("$.vehicle.licensePlate").value("29A-12345"))
                 .andRespond(withStatus(HttpStatus.CREATED).contentType(MediaType.APPLICATION_JSON).body("""

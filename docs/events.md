@@ -75,6 +75,8 @@ All events share a common envelope:
 }
 ```
 
+> **Identifiers:** every `driverId` in an event payload is the driver's identity user id (`drivers.driver_id = users.user_id`), the same value as the JWT `sub` and the `X-User-Id` header of that driver.
+
 ### Envelope Fields
 
 | Field | Type | Required | Description |

@@ -195,6 +195,7 @@ class AuthServiceImplTest {
         ArgumentCaptor<CreateDriverRequest> createCaptor = ArgumentCaptor.forClass(CreateDriverRequest.class);
         verify(driverServiceClient).createDriver(createCaptor.capture());
         assertEquals(saved.getUserId(), createCaptor.getValue().getUserId());
+        assertEquals("Tran Van B", createCaptor.getValue().getFullName());
         assertEquals("012345678901", createCaptor.getValue().getLicenseNumber());
         assertEquals("29A-12345", createCaptor.getValue().getVehicle().getLicensePlate());
 

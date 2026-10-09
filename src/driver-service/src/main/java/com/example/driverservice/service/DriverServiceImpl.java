@@ -47,7 +47,8 @@ public class DriverServiceImpl implements DriverService {
         }
 
         String licensePlate = normalizeLicensePlate(vehicleRequest.getLicensePlate());
-        if (driverRepository.existsByUserId(request.getUserId())) {
+        // The driver id is the identity user id, so an existing row means this user already has a profile
+        if (driverRepository.existsById(request.getUserId())) {
             throw new ConflictException("Driver profile already exists for this user", DRIVER_PROFILE_EXISTS);
         }
         if (vehicleRepository.existsByLicensePlate(licensePlate)) {
@@ -55,7 +56,8 @@ public class DriverServiceImpl implements DriverService {
         }
 
         Driver driver = Driver.builder()
-                .userId(request.getUserId())
+                .driverId(request.getUserId())
+                .fullName(request.getFullName().trim())
                 .licenseNumber(request.getLicenseNumber())
                 .status(DriverStatus.OFFLINE)
                 .build();
@@ -78,20 +80,20 @@ public class DriverServiceImpl implements DriverService {
             if (detail.contains(Vehicle.UQ_LICENSE_PLATE)) {
                 throw new ConflictException("License plate already registered", LICENSE_PLATE_ALREADY_REGISTERED);
             }
-            if (detail.contains(Driver.UQ_USER_ID)) {
+            if (detail.contains(Driver.PRIMARY_KEY)) {
                 throw new ConflictException("Driver profile already exists for this user", DRIVER_PROFILE_EXISTS);
             }
             throw ex;
         }
 
-        log.info("Driver profile created driverId={}, userId={}", driver.getDriverId(), driver.getUserId());
+        log.info("Driver profile created driverId={}", driver.getDriverId());
         return driverMapper.toProfileResponse(driver, vehicle);
     }
 
     @Override
     @Transactional
     public void deleteDriverByUserId(UUID userId) {
-        Optional<Driver> found = driverRepository.findByUserId(userId);
+        Optional<Driver> found = driverRepository.findById(userId);
         if (found.isEmpty()) {
             // Idempotent: the compensation may run when the create never reached this service
             log.info("No driver profile to delete for userId={}", userId);
@@ -106,7 +108,7 @@ public class DriverServiceImpl implements DriverService {
 
         vehicleRepository.deleteAll(vehicleRepository.findByDriver(driver));
         driverRepository.delete(driver);
-        log.info("Driver profile deleted driverId={}, userId={}", driver.getDriverId(), userId);
+        log.info("Driver profile deleted driverId={}", driver.getDriverId());
     }
 
     // 29a-123.45 and 29A-12345 are the same plate, so store one canonical form

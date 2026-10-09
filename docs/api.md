@@ -149,7 +149,7 @@ identity-service                                     driver-service
   "role": "DRIVER",
   "createdAt": "2026-09-30T10:00:00Z",
   "driver": {
-    "driverId": "d001-...",
+    "driverId": "a1b2c3d4-...",
     "status": "OFFLINE",
     "licenseNumber": "012345678901",
     "vehicle": {
@@ -238,6 +238,8 @@ Get user profile.
 
 **Internal address:** `http://driver-service:8082`  
 **Gateway prefix:** `/api/drivers/**`
+
+> **Driver id = user id.** A driver's id is its identity `userId` (`drivers.driver_id = users.user_id`, see database_schema.md). The `{id}` in every `/api/drivers/{id}` URL, the JWT `sub` of a driver, the `X-User-Id` header and every `driverId` field (matching, trip, events) carry the same value.
 
 ---
 
@@ -464,18 +466,21 @@ Create the driver profile (status `OFFLINE`) and its vehicle.
 ```json
 {
   "userId": "a1b2c3d4-...",
+  "fullName": "Tran Van B",
   "licenseNumber": "012345678901",
   "vehicle": { "licensePlate": "29A-123.45", "make": "Toyota", "model": "Vios", "color": "White", "year": 2022, "vehicleType": "SEDAN" }
 }
 ```
 
-**Response 201 Created:** `{ "driverId", "userId", "status": "OFFLINE", "licenseNumber", "vehicle": {...}, "createdAt" }`
+`userId` becomes the `driverId`; `fullName` is stored as a copy so driver lists (`/available`, `/nearby`) need no call to identity-service.
+
+**Response 201 Created:** `{ "driverId" (= userId), "fullName", "status": "OFFLINE", "licenseNumber", "vehicle": {...}, "createdAt" }`
 
 **Errors:** `400` validation, `401` internal key, `409 DRIVER_PROFILE_EXISTS` (one profile per user), `409 LICENSE_PLATE_ALREADY_REGISTERED`
 
 #### DELETE /internal/drivers?userId={userId}
 
-Compensation step. Deletes the profile and vehicle of the user. Idempotent: `204` also when no profile exists. Only a profile that is `OFFLINE` and not reserved can be deleted, otherwise `409 DRIVER_PROFILE_IN_USE`.
+Compensation step. Deletes the profile (`driver_id = userId`) and vehicle of the user. Idempotent: `204` also when no profile exists. Only a profile that is `OFFLINE` and not reserved can be deleted, otherwise `409 DRIVER_PROFILE_IN_USE`.
 
 **Response 204 No Content**
 

@@ -55,6 +55,7 @@ class DriverServiceImplTest {
     private CreateDriverRequest request(String licensePlate, int year) {
         return CreateDriverRequest.builder()
                 .userId(USER_ID)
+                .fullName(" Tran Van B ")
                 .licenseNumber("012345678901")
                 .vehicle(VehicleRequest.builder()
                         .licensePlate(licensePlate)
@@ -71,7 +72,6 @@ class DriverServiceImplTest {
     private void stubSavesAssignIds() {
         when(driverRepository.saveAndFlush(any(Driver.class))).thenAnswer(invocation -> {
             Driver driver = invocation.getArgument(0);
-            driver.setDriverId(UUID.randomUUID());
             driver.setCreatedAt(Instant.now());
             return driver;
         });
@@ -88,9 +88,9 @@ class DriverServiceImplTest {
     }
 
     @Test
-    @DisplayName("createDriver saves an OFFLINE driver and its vehicle with the plate normalized")
+    @DisplayName("createDriver saves an OFFLINE driver whose id is the user id, with the plate normalized")
     void createDriver_validRequest_savesOfflineDriverAndVehicle() {
-        when(driverRepository.existsByUserId(USER_ID)).thenReturn(false);
+        when(driverRepository.existsById(USER_ID)).thenReturn(false);
         when(vehicleRepository.existsByLicensePlate("29A-12345")).thenReturn(false);
         stubSavesAssignIds();
 
@@ -102,9 +102,11 @@ class DriverServiceImplTest {
         assertEquals("29A-12345", saved.getLicensePlate());
         assertEquals("Toyota", saved.getMake());
         assertEquals((short) 2022, saved.getYear());
-        assertEquals(saved.getDriver().getDriverId(), response.getDriverId());
+        assertEquals(USER_ID, saved.getDriver().getDriverId());
+        assertEquals("Tran Van B", saved.getDriver().getFullName());
 
-        assertEquals(USER_ID, response.getUserId());
+        assertEquals(USER_ID, response.getDriverId());
+        assertEquals("Tran Van B", response.getFullName());
         assertEquals(DriverStatus.OFFLINE, response.getStatus());
         assertEquals("012345678901", response.getLicenseNumber());
         assertEquals("29A-12345", response.getVehicle().getLicensePlate());
@@ -115,7 +117,7 @@ class DriverServiceImplTest {
     @Test
     @DisplayName("createDriver for a user that already has a profile throws 409 DRIVER_PROFILE_EXISTS without saving")
     void createDriver_userAlreadyHasProfile_throwsConflict() {
-        when(driverRepository.existsByUserId(USER_ID)).thenReturn(true);
+        when(driverRepository.existsById(USER_ID)).thenReturn(true);
 
         ConflictException ex = assertThrows(ConflictException.class,
                 () -> driverService.createDriver(request("29A-12345", 2022)));
@@ -128,7 +130,7 @@ class DriverServiceImplTest {
     @Test
     @DisplayName("createDriver with a plate already registered (in another notation) throws 409 LICENSE_PLATE_ALREADY_REGISTERED")
     void createDriver_plateAlreadyRegistered_throwsConflict() {
-        when(driverRepository.existsByUserId(USER_ID)).thenReturn(false);
+        when(driverRepository.existsById(USER_ID)).thenReturn(false);
         when(vehicleRepository.existsByLicensePlate("29A-12345")).thenReturn(true);
 
         ConflictException ex = assertThrows(ConflictException.class,
@@ -142,7 +144,7 @@ class DriverServiceImplTest {
     @Test
     @DisplayName("createDriver that loses a race on the plate unique index throws 409 instead of 500")
     void createDriver_concurrentPlateInsert_throwsConflict() {
-        when(driverRepository.existsByUserId(USER_ID)).thenReturn(false);
+        when(driverRepository.existsById(USER_ID)).thenReturn(false);
         when(vehicleRepository.existsByLicensePlate("29A-12345")).thenReturn(false);
         when(driverRepository.saveAndFlush(any(Driver.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(vehicleRepository.saveAndFlush(any(Vehicle.class))).thenThrow(uniqueViolation(Vehicle.UQ_LICENSE_PLATE));
@@ -154,11 +156,11 @@ class DriverServiceImplTest {
     }
 
     @Test
-    @DisplayName("createDriver that loses a race on the user_id unique index throws 409 DRIVER_PROFILE_EXISTS")
+    @DisplayName("createDriver that loses a race on the driver_id primary key throws 409 DRIVER_PROFILE_EXISTS")
     void createDriver_concurrentUserInsert_throwsConflict() {
-        when(driverRepository.existsByUserId(USER_ID)).thenReturn(false);
+        when(driverRepository.existsById(USER_ID)).thenReturn(false);
         when(vehicleRepository.existsByLicensePlate("29A-12345")).thenReturn(false);
-        when(driverRepository.saveAndFlush(any(Driver.class))).thenThrow(uniqueViolation(Driver.UQ_USER_ID));
+        when(driverRepository.saveAndFlush(any(Driver.class))).thenThrow(uniqueViolation(Driver.PRIMARY_KEY));
 
         ConflictException ex = assertThrows(ConflictException.class,
                 () -> driverService.createDriver(request("29A-12345", 2022)));
@@ -169,7 +171,7 @@ class DriverServiceImplTest {
     @Test
     @DisplayName("createDriver rethrows an integrity violation it does not recognise")
     void createDriver_otherIntegrityViolation_rethrows() {
-        when(driverRepository.existsByUserId(USER_ID)).thenReturn(false);
+        when(driverRepository.existsById(USER_ID)).thenReturn(false);
         when(vehicleRepository.existsByLicensePlate("29A-12345")).thenReturn(false);
         when(driverRepository.saveAndFlush(any(Driver.class))).thenThrow(uniqueViolation("some_other_constraint"));
 
@@ -188,7 +190,7 @@ class DriverServiceImplTest {
         assertEquals("VALIDATION_ERROR", ex.getCode());
         verifyNoInteractions(driverRepository, vehicleRepository);
 
-        when(driverRepository.existsByUserId(USER_ID)).thenReturn(false);
+        when(driverRepository.existsById(USER_ID)).thenReturn(false);
         when(vehicleRepository.existsByLicensePlate("29A-12345")).thenReturn(false);
         stubSavesAssignIds();
         assertEquals(nextYear, driverService.createDriver(request("29A-12345", nextYear)).getVehicle().getYear());
@@ -197,7 +199,7 @@ class DriverServiceImplTest {
     @Test
     @DisplayName("deleteDriverByUserId without a profile does nothing (idempotent compensation)")
     void deleteDriverByUserId_noProfile_doesNothing() {
-        when(driverRepository.findByUserId(USER_ID)).thenReturn(Optional.empty());
+        when(driverRepository.findById(USER_ID)).thenReturn(Optional.empty());
 
         assertDoesNotThrow(() -> driverService.deleteDriverByUserId(USER_ID));
 
@@ -208,9 +210,9 @@ class DriverServiceImplTest {
     @Test
     @DisplayName("deleteDriverByUserId removes the vehicles first, then the OFFLINE driver")
     void deleteDriverByUserId_offlineProfile_deletesVehiclesThenDriver() {
-        Driver driver = Driver.builder().driverId(UUID.randomUUID()).userId(USER_ID).status(DriverStatus.OFFLINE).build();
+        Driver driver = Driver.builder().driverId(USER_ID).status(DriverStatus.OFFLINE).build();
         List<Vehicle> vehicles = List.of(Vehicle.builder().driver(driver).licensePlate("29A-12345").build());
-        when(driverRepository.findByUserId(USER_ID)).thenReturn(Optional.of(driver));
+        when(driverRepository.findById(USER_ID)).thenReturn(Optional.of(driver));
         when(vehicleRepository.findByDriver(driver)).thenReturn(vehicles);
 
         driverService.deleteDriverByUserId(USER_ID);
@@ -223,8 +225,8 @@ class DriverServiceImplTest {
     @Test
     @DisplayName("deleteDriverByUserId refuses to delete a driver that is not OFFLINE")
     void deleteDriverByUserId_availableDriver_throwsConflict() {
-        Driver driver = Driver.builder().userId(USER_ID).status(DriverStatus.AVAILABLE).build();
-        when(driverRepository.findByUserId(USER_ID)).thenReturn(Optional.of(driver));
+        Driver driver = Driver.builder().driverId(USER_ID).status(DriverStatus.AVAILABLE).build();
+        when(driverRepository.findById(USER_ID)).thenReturn(Optional.of(driver));
 
         ConflictException ex = assertThrows(ConflictException.class, () -> driverService.deleteDriverByUserId(USER_ID));
 
@@ -235,8 +237,8 @@ class DriverServiceImplTest {
     @Test
     @DisplayName("deleteDriverByUserId refuses to delete a driver reserved for a trip")
     void deleteDriverByUserId_reservedDriver_throwsConflict() {
-        Driver driver = Driver.builder().userId(USER_ID).status(DriverStatus.OFFLINE).reservedForTrip(UUID.randomUUID()).build();
-        when(driverRepository.findByUserId(USER_ID)).thenReturn(Optional.of(driver));
+        Driver driver = Driver.builder().driverId(USER_ID).status(DriverStatus.OFFLINE).reservedForTrip(UUID.randomUUID()).build();
+        when(driverRepository.findById(USER_ID)).thenReturn(Optional.of(driver));
 
         assertThrows(ConflictException.class, () -> driverService.deleteDriverByUserId(USER_ID));
 
