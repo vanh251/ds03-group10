@@ -17,6 +17,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.InvalidDataAccessResourceUsageException;
 import org.springframework.transaction.support.TransactionOperations;
 
 import java.util.List;
@@ -150,5 +151,18 @@ class DemoDriverSeederTest {
         // Checked once before the insert and once after it failed
         verify(driverRepository, times(2)).existsById(DemoDriverSeeder.driverId(1));
         verify(vehicleRepository, times(9)).saveAndFlush(any(Vehicle.class));
+    }
+
+    @Test
+    @DisplayName("run does not stop startup when the schema is outdated (e.g. a column is missing)")
+    void run_outdatedSchema_doesNotThrow() {
+        when(driverRepository.existsById(any())).thenReturn(false);
+        when(driverRepository.saveAndFlush(any(Driver.class)))
+                .thenThrow(new InvalidDataAccessResourceUsageException("column \"full_name\" of relation \"drivers\" does not exist"));
+
+        assertDoesNotThrow(() -> seeder.run(null));
+
+        verify(driverRepository, times(10)).saveAndFlush(any(Driver.class));
+        verify(vehicleRepository, never()).saveAndFlush(any(Vehicle.class));
     }
 }

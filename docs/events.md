@@ -673,7 +673,7 @@ Complete event flow for a successful ride:
         |
         v
 [3] matching-service consumes: trip.requested
-        |  -> GET /api/drivers/nearby
+        |  -> GET /api/drivers/available
         |  -> POST /api/drivers/{id}/reserve (CAS)
         v  (saga_log: not applicable for matching-service)
 [4] matching-service publishes: driver.reserved -> matching-events

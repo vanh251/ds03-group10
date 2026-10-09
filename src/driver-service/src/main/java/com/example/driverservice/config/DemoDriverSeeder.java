@@ -10,6 +10,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionOperations;
@@ -85,12 +86,12 @@ public class DemoDriverSeeder implements ApplicationRunner {
                 // Driver and vehicle together, so a failure never leaves a profile without its vehicle
                 transactions.executeWithoutResult(status -> insert(demo));
                 created++;
-            } catch (DataIntegrityViolationException ex) {
-                if (driverRepository.existsById(id)) {
+            } catch (DataAccessException ex) {
+                if (ex instanceof DataIntegrityViolationException && driverRepository.existsById(id)) {
                     // Another driver-service instance inserted the same profile between the check and the insert
                     log.info("Demo driver {} was created by another instance, skipping", id);
                 } else {
-                    // e.g. the plate is taken by a real registration, or an old driver_db volume still has drivers.user_id
+                    // Demo data must never stop the service from starting (matching-service waits for it to be healthy)
                     log.warn("Demo driver {} could not be created: {}", id, ex.getMostSpecificCause().getMessage());
                     failed++;
                 }
@@ -98,6 +99,10 @@ public class DemoDriverSeeder implements ApplicationRunner {
         }
         log.info("Demo driver seeding finished: created={}, alreadyPresent={}, failed={}",
                 created, DEMO_DRIVERS.size() - created - failed, failed);
+        if (failed > 0) {
+            log.warn("{} demo driver(s) were not created, see the warnings above. If driver_db was created before "
+                    + "driver_id became the user id, recreate it (docs/test-data/driver/README.md)", failed);
+        }
     }
 
     private void insert(DemoDriver demo) {

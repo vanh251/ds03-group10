@@ -153,7 +153,7 @@
 |             v                        v                   |
 |  +-----------------------------------------------------------+  |
 |  |           Matching Domain Service                     |  |
-|  |  1. Query Driver Service: GET /api/drivers/nearby     |  |
+|  |  1. Query Driver Service: GET /api/drivers/available  |  |
 |  |  2. Calculate distance (Haversine)                    |  |
 |  |  3. POST /api/drivers/{id}/reserve (CAS lock)         |  |
 |  |  4. Handle rejection -> rematch                       |  |
@@ -226,7 +226,7 @@ Client -> API Gateway -> Target Service -> Response
 | Caller | Callee | Endpoint | Purpose |
 |---|---|---|---|
 | Passenger | Trip Service | POST /api/trips | Create ride request |
-| Matching Service | Driver Service | GET /api/drivers/nearby | Find candidates |
+| Matching Service | Driver Service | GET /api/drivers/available | Find candidates (`/nearby` is passenger-only) |
 | Matching Service | Driver Service | POST /api/drivers/{id}/reserve | CAS lock driver |
 | Trip Service | Pricing Service | POST /api/pricing/quote | Estimate fare |
 | Trip Service | Pricing Service | POST /api/pricing/final | Final fare |

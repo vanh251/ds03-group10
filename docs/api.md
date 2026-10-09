@@ -97,7 +97,7 @@ Register a driver account together with the driver profile and vehicle. The acco
 identity-service                                     driver-service
 1. validate account fields (+ presence of driver fields)
 2. INSERT user (role DRIVER) → COMMIT
-3. POST /internal/drivers {userId, licenseNumber, vehicle}  ──►  validate formats, INSERT drivers + vehicles
+3. POST /internal/drivers {userId, fullName, licenseNumber, vehicle}  ──►  validate formats, INSERT drivers + vehicles
    (timeouts: connect 1s, read 2s)
 4a. 201                    → return 201
 4b. 400 / 409              → driver-service created nothing → delete user → return the same 400 / 409 code

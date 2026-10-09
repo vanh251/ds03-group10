@@ -1,5 +1,13 @@
 # Driver Service – dữ liệu test
 
+> **Nâng cấp từ bản cũ:** bảng `drivers` đã bỏ cột `user_id` (giờ `driver_id` = `userId`) và thêm `full_name NOT NULL`. `ddl-auto: update` không xóa được cột cũ, nên volume `driver_db` tạo trước thay đổi này phải tạo lại, nếu không đăng ký tài xế trả `503` và seeder ghi `could not be created`:
+>
+> ```bash
+> docker compose down -v                      # xóa mọi volume, hoặc chỉ xóa driver_db:
+> docker compose rm -sf driver-db && docker volume rm <project>_driver_db_data   # <project>: xem `docker volume ls`
+> docker compose up -d --build
+> ```
+
 ## Hồ sơ tài xế demo (seed tự động)
 
 Khi `driver-service` khởi động với `SEED_DATA_ENABLED=true` (mặc định), class `DemoDriverSeeder` tạo hồ sơ cho 10 tài khoản DRIVER mà `identity-service` seed sẵn. `driverId` chính là `userId` của tài khoản (xem `docs/test-data/identity/README.md`), đăng nhập bằng `driverNN@ds03.test` / `Demo@12345`.

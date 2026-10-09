@@ -106,6 +106,9 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 --   rowCount = 1 → SUCCESS → proceed to Matching
 --
 -- driver_id IS the driver's identity user id (soft ref → db_identity.users.user_id).
+-- (An older version had a generated driver_id plus a user_id column. ddl-auto: update cannot drop
+--  that column, so a driver_db volume created before this change must be recreated:
+--  docker compose down -v, see docs/test-data/driver/README.md.)
 -- It is assigned at registration (POST /api/auth/register/driver), not generated, so one
 -- identity user has at most one driver profile and the same id is used everywhere: JWT `sub`,
 -- X-User-Id, /api/drivers/{id}, matching/trip `driverId` and every event's `driverId`.

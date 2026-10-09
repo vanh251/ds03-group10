@@ -25,7 +25,7 @@ Tất cả dùng chung mật khẩu `SEED_USER_PASSWORD` (mặc định `Demo@12
 | 12 | Ly Minh Chau | `passenger02@ds03.test` | PASSENGER | `a0000000-0000-4000-8000-000000000002` |
 | 13 | Phan Gia Bao | `passenger03@ds03.test` | PASSENGER | `a0000000-0000-4000-8000-000000000003` |
 
-> Nếu `identity_db` đã được seed bởi bản cũ (id ngẫu nhiên), seeder chỉ ghi cảnh báo và không đổi id. Xóa volume để seed lại: `docker compose down -v` (hoặc xóa riêng `identity_db_data` và `driver_db_data`).
+> Nếu `identity_db` đã được seed bởi bản cũ (id ngẫu nhiên), seeder chỉ ghi cảnh báo và không đổi id. Xóa volume để seed lại: `docker compose down -v`, hoặc xóa riêng hai volume `<project>_identity_db_data` và `<project>_driver_db_data` (`<project>` mặc định là tên thư mục repo, xem bằng `docker volume ls`).
 
 ## Request mẫu
 
