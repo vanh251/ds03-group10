@@ -43,6 +43,7 @@ public class SecurityConfig {
                 ).permitAll()
                 // matching-service calls this without a token (it has no service credential yet)
                 .requestMatchers(HttpMethod.GET, "/api/drivers/available").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/drivers/nearby").hasRole("PASSENGER")
                 .requestMatchers(HttpMethod.PATCH, "/api/drivers/*/status", "/api/drivers/*/location").hasRole("DRIVER")
                 .anyRequest().authenticated()
             )

@@ -5,6 +5,7 @@ import com.example.driverservice.dto.request.VehicleRequest;
 import com.example.driverservice.dto.response.AvailableDriverResponse;
 import com.example.driverservice.dto.response.DriverDetailResponse;
 import com.example.driverservice.dto.response.DriverLocationResponse;
+import com.example.driverservice.dto.response.NearbyDriverResponse;
 import com.example.driverservice.dto.response.DriverProfileResponse;
 import com.example.driverservice.dto.response.DriverStatusResponse;
 import com.example.driverservice.entity.Driver;
@@ -497,5 +498,25 @@ class DriverServiceImplTest {
         BusinessException ex = assertThrows(BusinessException.class, () -> driverService.getDriver(USER_ID));
 
         assertEquals("DRIVER_NOT_FOUND", ex.getCode());
+    }
+
+    // ---- GET /api/drivers/nearby ----
+
+    @Test
+    @DisplayName("findNearbyDrivers returns at most limit drivers within the radius, nearest first")
+    void findNearbyDrivers_limit_returnsNearestOnly() {
+        Driver hangBai = availableDriver("Hang Bai", 21.0190, 105.8520);      // 1.08 km
+        Driver trangTien = availableDriver("Trang Tien", 21.0250, 105.8570);  // 0.49 km
+        Driver hangNgang = availableDriver("Hang Ngang", 21.0345, 105.8505);  // 0.77 km
+        Driver corner = availableDriver("Corner", 21.0285 + 0.040, 105.8542 + 0.042);  // ~6.2 km
+        when(driverRepository.findByStatusAndCurrentLatBetweenAndCurrentLngBetween(
+                eq(DriverStatus.AVAILABLE), any(), any(), any(), any()))
+                .thenReturn(List.of(hangBai, corner, trangTien, hangNgang));
+
+        List<NearbyDriverResponse> result = driverService.findNearbyDrivers(21.0285, 105.8542, 5.0, 2);
+
+        assertEquals(List.of("Trang Tien", "Hang Ngang"), result.stream().map(NearbyDriverResponse::getFullName).toList());
+        assertEquals(0.49, result.get(0).getDistanceKm());
+        assertEquals(21.0250, result.get(0).getLocation().getLatitude());
     }
 }

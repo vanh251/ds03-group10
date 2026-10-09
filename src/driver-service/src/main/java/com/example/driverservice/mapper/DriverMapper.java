@@ -5,6 +5,7 @@ import com.example.driverservice.dto.response.DriverDetailResponse;
 import com.example.driverservice.dto.response.DriverProfileResponse;
 import com.example.driverservice.dto.response.DriverStatusResponse;
 import com.example.driverservice.dto.response.LocationResponse;
+import com.example.driverservice.dto.response.NearbyDriverResponse;
 import com.example.driverservice.dto.response.VehicleResponse;
 import com.example.driverservice.entity.Driver;
 import com.example.driverservice.entity.Vehicle;
@@ -41,6 +42,15 @@ public class DriverMapper {
                 .fullName(driver.getFullName())
                 .status(driver.getStatus())
                 .vehicle(activeVehicle != null ? toVehicleResponse(activeVehicle) : null)
+                .location(toLocationResponse(driver))
+                .build();
+    }
+
+    public NearbyDriverResponse toNearbyResponse(Driver driver, double distanceKm) {
+        return NearbyDriverResponse.builder()
+                .id(driver.getDriverId())
+                .fullName(driver.getFullName())
+                .distanceKm(distanceKm)
                 .location(toLocationResponse(driver))
                 .build();
     }

@@ -7,6 +7,7 @@ import com.example.driverservice.dto.response.DriverDetailResponse;
 import com.example.driverservice.dto.response.DriverLocationResponse;
 import com.example.driverservice.dto.response.DriverStatusResponse;
 import com.example.driverservice.dto.response.ErrorResponse;
+import com.example.driverservice.dto.response.NearbyDriverResponse;
 import com.example.driverservice.service.DriverService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -20,6 +21,8 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Positive;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -69,6 +72,39 @@ public class DriverController {
             @Positive(message = "radiusKm must be greater than 0")
             @DecimalMax(value = "50.0", message = "radiusKm must be at most 50") double radiusKm) {
         return ResponseEntity.ok(driverService.findAvailableDrivers(latitude, longitude, radiusKm));
+    }
+
+    @Operation(summary = "Find AVAILABLE drivers near a pickup point",
+            description = "The nearest AVAILABLE drivers within radiusKm, nearest first, at most limit. Requires a PASSENGER token.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Nearby drivers",
+                    content = @Content(array = @ArraySchema(schema = @Schema(implementation = NearbyDriverResponse.class)))),
+            @ApiResponse(responseCode = "400", description = "Missing or out-of-range parameter",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "401", description = "Missing, invalid or expired JWT",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "403", description = "Not a PASSENGER token",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    @GetMapping("/nearby")
+    public ResponseEntity<List<NearbyDriverResponse>> getNearbyDrivers(
+            @Parameter(description = "Pickup latitude", example = "21.0285")
+            @RequestParam
+            @DecimalMin(value = "-90.0", message = "latitude must be between -90 and 90")
+            @DecimalMax(value = "90.0", message = "latitude must be between -90 and 90") double latitude,
+            @Parameter(description = "Pickup longitude", example = "105.8542")
+            @RequestParam
+            @DecimalMin(value = "-180.0", message = "longitude must be between -180 and 180")
+            @DecimalMax(value = "180.0", message = "longitude must be between -180 and 180") double longitude,
+            @Parameter(description = "Search radius in km (max 50)", example = "5.0")
+            @RequestParam(defaultValue = "5.0")
+            @Positive(message = "radiusKm must be greater than 0")
+            @DecimalMax(value = "50.0", message = "radiusKm must be at most 50") double radiusKm,
+            @Parameter(description = "Maximum number of drivers (1-50)", example = "10")
+            @RequestParam(defaultValue = "10")
+            @Min(value = 1, message = "limit must be between 1 and 50")
+            @Max(value = 50, message = "limit must be between 1 and 50") int limit) {
+        return ResponseEntity.ok(driverService.findNearbyDrivers(latitude, longitude, radiusKm, limit));
     }
 
     @Operation(summary = "Update own availability status",

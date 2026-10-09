@@ -6,6 +6,7 @@ import com.example.driverservice.dto.response.DriverDetailResponse;
 import com.example.driverservice.dto.response.DriverLocationResponse;
 import com.example.driverservice.dto.response.DriverProfileResponse;
 import com.example.driverservice.dto.response.DriverStatusResponse;
+import com.example.driverservice.dto.response.NearbyDriverResponse;
 import com.example.driverservice.entity.DriverStatus;
 
 import java.util.List;
@@ -22,6 +23,9 @@ public interface DriverService {
      * without one, all AVAILABLE drivers with distanceKm null.
      */
     List<AvailableDriverResponse> findAvailableDrivers(Double latitude, Double longitude, double radiusKm);
+
+    /** The {@code limit} nearest AVAILABLE drivers within radiusKm of the pickup point, nearest first. */
+    List<NearbyDriverResponse> findNearbyDrivers(double latitude, double longitude, double radiusKm, int limit);
 
     /** Driver-initiated OFFLINE ⇄ AVAILABLE switch; callerId is the user id from the JWT. */
     DriverStatusResponse updateStatus(UUID driverId, DriverStatus target, UUID callerId);

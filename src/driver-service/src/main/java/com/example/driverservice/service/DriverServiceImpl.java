@@ -6,6 +6,7 @@ import com.example.driverservice.dto.response.AvailableDriverResponse;
 import com.example.driverservice.dto.response.DriverDetailResponse;
 import com.example.driverservice.dto.response.DriverLocationResponse;
 import com.example.driverservice.dto.response.LocationResponse;
+import com.example.driverservice.dto.response.NearbyDriverResponse;
 import com.example.driverservice.dto.response.DriverProfileResponse;
 import com.example.driverservice.dto.response.DriverStatusResponse;
 import com.example.driverservice.entity.Driver;
@@ -135,6 +136,22 @@ public class DriverServiceImpl implements DriverService {
                     HttpStatus.BAD_REQUEST, "VALIDATION_ERROR");
         }
 
+        return availableWithin(latitude, longitude, radiusKm).stream()
+                .map(candidate -> driverMapper.toAvailableResponse(candidate.driver(), roundKm(candidate.distanceKm())))
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<NearbyDriverResponse> findNearbyDrivers(double latitude, double longitude, double radiusKm, int limit) {
+        return availableWithin(latitude, longitude, radiusKm).stream()
+                .limit(limit)
+                .map(candidate -> driverMapper.toNearbyResponse(candidate.driver(), roundKm(candidate.distanceKm())))
+                .toList();
+    }
+
+    // AVAILABLE drivers within radiusKm of the point, nearest first
+    private List<Candidate> availableWithin(double latitude, double longitude, double radiusKm) {
         GeoUtils.BoundingBox box = GeoUtils.boundingBox(latitude, longitude, radiusKm);
         return driverRepository.findByStatusAndCurrentLatBetweenAndCurrentLngBetween(DriverStatus.AVAILABLE,
                         BigDecimal.valueOf(box.minLat()), BigDecimal.valueOf(box.maxLat()),
@@ -145,7 +162,6 @@ public class DriverServiceImpl implements DriverService {
                 // The box corners are farther than the radius, so keep only drivers inside the circle
                 .filter(candidate -> candidate.distanceKm() <= radiusKm)
                 .sorted(Comparator.comparingDouble(Candidate::distanceKm))
-                .map(candidate -> driverMapper.toAvailableResponse(candidate.driver(), roundKm(candidate.distanceKm())))
                 .toList();
     }
 

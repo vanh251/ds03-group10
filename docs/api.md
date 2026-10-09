@@ -325,33 +325,39 @@ List AVAILABLE drivers. With `latitude` + `longitude`: only drivers within `radi
 
 ### GET /api/drivers/nearby
 
-Query nearby AVAILABLE drivers (spatial search).
+Query nearby AVAILABLE drivers (spatial search): the `limit` nearest drivers within `radiusKm` (Haversine distance), nearest first.
 
-**Auth required:** Yes (PASSENGER or Matching Service internally)
+**Auth required:** Yes (PASSENGER). Matching Service uses `GET /api/drivers/available` instead, so no internal caller needs this endpoint today.
 
 **Query Parameters:**
 
 | Param | Type | Required | Description |
 |---|---|---|---|
-| latitude | double | Yes | Pickup latitude |
-| longitude | double | Yes | Pickup longitude |
-| radiusKm | double | No | Radius in km (default: 5.0) |
-| limit | int | No | Max results (default: 10) |
+| latitude | double | Yes | Pickup latitude, -90..90 |
+| longitude | double | Yes | Pickup longitude, -180..180 |
+| radiusKm | double | No | Radius in km (default: 5.0, max 50) |
+| limit | int | No | Max results (default: 10, 1-50) |
 
 **Response 200 OK:**
 ```json
 [
   {
-    "id": "d001",
-    "fullName": "Tran Van B",
-    "distanceKm": 0.8,
+    "id": "d0000000-0000-4000-8000-000000000001",
+    "fullName": "Tran Van Binh",
+    "distanceKm": 0.49,
     "location": {
-      "latitude": 21.029,
-      "longitude": 105.855
+      "latitude": 21.025,
+      "longitude": 105.857,
+      "updatedAt": "2026-09-30T10:05:00Z"
     }
   }
 ]
 ```
+
+**Errors:**
+- `400 VALIDATION_ERROR` – Missing coordinate, value out of range, `limit` outside 1-50
+- `401` – Missing, invalid or expired JWT
+- `403 ACCESS_DENIED` – Token role is not `PASSENGER`
 
 ---
 

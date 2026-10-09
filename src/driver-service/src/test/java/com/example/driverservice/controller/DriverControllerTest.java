@@ -7,6 +7,7 @@ import com.example.driverservice.dto.response.VehicleResponse;
 import com.example.driverservice.entity.VehicleType;
 import com.example.driverservice.dto.response.DriverStatusResponse;
 import com.example.driverservice.dto.response.LocationResponse;
+import com.example.driverservice.dto.response.NearbyDriverResponse;
 import com.example.driverservice.entity.DriverStatus;
 import com.example.driverservice.exception.BusinessException;
 import com.example.driverservice.exception.GlobalExceptionHandler;
@@ -274,5 +275,38 @@ class DriverControllerTest {
         mockMvc.perform(get("/api/drivers/{id}", "d001"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"));
+    }
+
+    @Test
+    @DisplayName("GET /api/drivers/nearby uses the default radius 5 and limit 10 and returns id, fullName, distanceKm, location")
+    void getNearbyDrivers_defaults_returns200() throws Exception {
+        when(driverService.findNearbyDrivers(21.0285, 105.8542, 5.0, 10)).thenReturn(List.of(NearbyDriverResponse.builder()
+                .id(DRIVER_ID).fullName("Tran Van Binh").distanceKm(0.49)
+                .location(LocationResponse.builder().latitude(21.025).longitude(105.857).build())
+                .build()));
+
+        mockMvc.perform(get("/api/drivers/nearby").param("latitude", "21.0285").param("longitude", "105.8542"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(DRIVER_ID.toString()))
+                .andExpect(jsonPath("$[0].fullName").value("Tran Van Binh"))
+                .andExpect(jsonPath("$[0].distanceKm").value(0.49))
+                .andExpect(jsonPath("$[0].location.latitude").value(21.025));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @CsvSource(delimiter = '|', value = {
+            "missing latitude | longitude=105.8",
+            "missing longitude | latitude=21.0",
+            "limit 0 | latitude=21.0&longitude=105.8&limit=0",
+            "limit 51 | latitude=21.0&longitude=105.8&limit=51",
+            "radius 60 | latitude=21.0&longitude=105.8&radiusKm=60"
+    })
+    @DisplayName("GET /api/drivers/nearby with a missing or out-of-range parameter returns 400 VALIDATION_ERROR")
+    void getNearbyDrivers_invalidParams_returns400(String caseName, String query) throws Exception {
+        mockMvc.perform(get("/api/drivers/nearby?" + query))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+
+        verifyNoInteractions(driverService);
     }
 }

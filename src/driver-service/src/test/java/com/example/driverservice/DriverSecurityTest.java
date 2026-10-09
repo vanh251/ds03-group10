@@ -221,4 +221,24 @@ class DriverSecurityTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.fullName").value("Tran Van Binh"));
     }
+
+    @Test
+    @DisplayName("GET /api/drivers/nearby needs a PASSENGER token: 401 without, 403 with DRIVER, 200 with PASSENGER")
+    void getNearby_requiresPassengerToken() throws Exception {
+        when(driverRepository.findByStatusAndCurrentLatBetweenAndCurrentLngBetween(any(), any(), any(), any(), any()))
+                .thenReturn(List.of());
+
+        mockMvc.perform(get("/api/drivers/nearby").param("latitude", "21.0285").param("longitude", "105.8542"))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(get("/api/drivers/nearby").param("latitude", "21.0285").param("longitude", "105.8542")
+                        .header(HttpHeaders.AUTHORIZATION, TestTokens.bearer(TestTokens.token(DRIVER_ID, "DRIVER"))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
+
+        mockMvc.perform(get("/api/drivers/nearby").param("latitude", "21.0285").param("longitude", "105.8542")
+                        .header(HttpHeaders.AUTHORIZATION, TestTokens.bearer(TestTokens.token(UUID.randomUUID(), "PASSENGER"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isArray());
+    }
 }
