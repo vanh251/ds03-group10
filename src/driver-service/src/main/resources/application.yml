@@ -16,6 +16,11 @@ spring:
       ddl-auto: ${JPA_DDL_AUTO:update}
     open-in-view: false
 
+# Shared secret for service-to-service calls on /internal/** (identity-service -> driver-service).
+# Must be the same value in both services; override with INTERNAL_API_KEY outside local runs.
+internal:
+  api-key: ${INTERNAL_API_KEY:local-dev-internal-api-key}
+
 management:
   endpoints:
     web:
