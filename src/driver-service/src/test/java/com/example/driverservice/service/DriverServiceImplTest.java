@@ -2,7 +2,9 @@ package com.example.driverservice.service;
 
 import com.example.driverservice.dto.request.CreateDriverRequest;
 import com.example.driverservice.dto.request.VehicleRequest;
+import com.example.driverservice.dto.response.AvailableDriverResponse;
 import com.example.driverservice.dto.response.DriverProfileResponse;
+import com.example.driverservice.dto.response.DriverStatusResponse;
 import com.example.driverservice.entity.Driver;
 import com.example.driverservice.entity.DriverStatus;
 import com.example.driverservice.entity.Vehicle;
@@ -15,6 +17,8 @@ import com.example.driverservice.repository.VehicleRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.InjectMocks;
@@ -24,6 +28,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.Year;
 import java.time.ZoneOffset;
@@ -33,6 +38,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -243,5 +249,162 @@ class DriverServiceImplTest {
         assertThrows(ConflictException.class, () -> driverService.deleteDriverByUserId(USER_ID));
 
         verify(driverRepository, never()).delete(any());
+    }
+
+    // ---- GET /api/drivers/available ----
+
+    private static Driver availableDriver(String name, double lat, double lng) {
+        return Driver.builder()
+                .driverId(UUID.randomUUID())
+                .fullName(name)
+                .status(DriverStatus.AVAILABLE)
+                .currentLat(BigDecimal.valueOf(lat))
+                .currentLng(BigDecimal.valueOf(lng))
+                .lastHeartbeatAt(Instant.parse("2026-10-09T10:00:00Z"))
+                .version(3)
+                .build();
+    }
+
+    @Test
+    @DisplayName("findAvailableDrivers without a point returns every AVAILABLE driver with distanceKm null")
+    void findAvailableDrivers_noPoint_returnsAllAvailable() {
+        Driver withLocation = availableDriver("A", 21.0250, 105.8570);
+        Driver withoutLocation = Driver.builder().driverId(UUID.randomUUID()).fullName("B")
+                .status(DriverStatus.AVAILABLE).version(1).build();
+        when(driverRepository.findByStatus(DriverStatus.AVAILABLE)).thenReturn(List.of(withLocation, withoutLocation));
+
+        List<AvailableDriverResponse> result = driverService.findAvailableDrivers(null, null, 5.0);
+
+        assertEquals(2, result.size());
+        assertNull(result.get(0).getDistanceKm());
+        assertEquals(21.0250, result.get(0).getLocation().getLatitude());
+        assertNull(result.get(1).getLocation());
+        verify(driverRepository, never()).findByStatusAndCurrentLatBetweenAndCurrentLngBetween(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("findAvailableDrivers keeps drivers inside the radius, nearest first, and drops box corners outside it")
+    void findAvailableDrivers_withPoint_filtersByRadiusAndSortsByDistance() {
+        Driver hangBai = availableDriver("Hang Bai", 21.0190, 105.8520);      // 1.08 km
+        Driver trangTien = availableDriver("Trang Tien", 21.0250, 105.8570);  // 0.49 km
+        // Inside the 5 km bounding box (both deltas ~0.044 deg) but ~6.2 km away diagonally
+        Driver corner = availableDriver("Corner", 21.0285 + 0.040, 105.8542 + 0.042);
+        when(driverRepository.findByStatusAndCurrentLatBetweenAndCurrentLngBetween(
+                eq(DriverStatus.AVAILABLE), any(), any(), any(), any()))
+                .thenReturn(List.of(hangBai, corner, trangTien));
+
+        List<AvailableDriverResponse> result = driverService.findAvailableDrivers(21.0285, 105.8542, 5.0);
+
+        assertEquals(List.of("Trang Tien", "Hang Bai"), result.stream().map(AvailableDriverResponse::getFullName).toList());
+        assertEquals(0.49, result.get(0).getDistanceKm());
+        assertEquals(1.08, result.get(1).getDistanceKm());
+        assertEquals(3, result.get(0).getVersion());
+        assertEquals(trangTien.getDriverId(), result.get(0).getId());
+        assertEquals(DriverStatus.AVAILABLE, result.get(0).getStatus());
+    }
+
+    @Test
+    @DisplayName("findAvailableDrivers queries the bounding box around the point")
+    void findAvailableDrivers_withPoint_queriesBoundingBox() {
+        ArgumentCaptor<BigDecimal> minLat = ArgumentCaptor.forClass(BigDecimal.class);
+        ArgumentCaptor<BigDecimal> maxLat = ArgumentCaptor.forClass(BigDecimal.class);
+        ArgumentCaptor<BigDecimal> minLng = ArgumentCaptor.forClass(BigDecimal.class);
+        ArgumentCaptor<BigDecimal> maxLng = ArgumentCaptor.forClass(BigDecimal.class);
+        when(driverRepository.findByStatusAndCurrentLatBetweenAndCurrentLngBetween(
+                eq(DriverStatus.AVAILABLE), minLat.capture(), maxLat.capture(), minLng.capture(), maxLng.capture()))
+                .thenReturn(List.of());
+
+        driverService.findAvailableDrivers(21.0285, 105.8542, 5.0);
+
+        assertEquals(21.0285 - 5.0 / 111.32, minLat.getValue().doubleValue(), 1e-9);
+        assertEquals(21.0285 + 5.0 / 111.32, maxLat.getValue().doubleValue(), 1e-9);
+        assertTrue(minLng.getValue().doubleValue() < 105.8542 - 5.0 / 111.32);
+        assertTrue(maxLng.getValue().doubleValue() > 105.8542 + 5.0 / 111.32);
+    }
+
+    @Test
+    @DisplayName("findAvailableDrivers with only latitude or only longitude throws 400")
+    void findAvailableDrivers_onlyOneCoordinate_throwsValidationError() {
+        BusinessException onlyLat = assertThrows(BusinessException.class,
+                () -> driverService.findAvailableDrivers(21.0, null, 5.0));
+        BusinessException onlyLng = assertThrows(BusinessException.class,
+                () -> driverService.findAvailableDrivers(null, 105.8, 5.0));
+
+        assertEquals(HttpStatus.BAD_REQUEST, onlyLat.getStatus());
+        assertEquals("VALIDATION_ERROR", onlyLng.getCode());
+        verifyNoInteractions(driverRepository);
+    }
+
+    // ---- PATCH /api/drivers/{id}/status ----
+
+    private Driver driverWithStatus(DriverStatus status) {
+        return Driver.builder().driverId(USER_ID).fullName("Tran Van B").status(status).version(2)
+                .updatedAt(Instant.parse("2026-10-09T10:00:00Z")).build();
+    }
+
+    @ParameterizedTest(name = "{0} -> {1}")
+    @CsvSource({"OFFLINE, AVAILABLE", "AVAILABLE, OFFLINE"})
+    @DisplayName("updateStatus allows a driver to switch between OFFLINE and AVAILABLE")
+    void updateStatus_allowedTransition_savesNewStatus(DriverStatus from, DriverStatus to) {
+        Driver driver = driverWithStatus(from);
+        when(driverRepository.findById(USER_ID)).thenReturn(Optional.of(driver));
+        when(driverRepository.saveAndFlush(driver)).thenReturn(driver);
+
+        DriverStatusResponse response = driverService.updateStatus(USER_ID, to, USER_ID);
+
+        assertEquals(to, response.getStatus());
+        assertEquals(USER_ID, response.getId());
+        verify(driverRepository).saveAndFlush(driver);
+    }
+
+    @ParameterizedTest(name = "{0} -> {0}")
+    @CsvSource({"OFFLINE", "AVAILABLE"})
+    @DisplayName("updateStatus to the current status is an idempotent no-op")
+    void updateStatus_sameStatus_returnsWithoutSaving(DriverStatus status) {
+        when(driverRepository.findById(USER_ID)).thenReturn(Optional.of(driverWithStatus(status)));
+
+        DriverStatusResponse response = driverService.updateStatus(USER_ID, status, USER_ID);
+
+        assertEquals(status, response.getStatus());
+        verify(driverRepository, never()).saveAndFlush(any());
+    }
+
+    @ParameterizedTest(name = "{0} -> {1}")
+    @CsvSource({
+            "AVAILABLE, RESERVED", "AVAILABLE, BUSY", "OFFLINE, RESERVED", "OFFLINE, BUSY",
+            "RESERVED, OFFLINE", "RESERVED, AVAILABLE", "BUSY, OFFLINE", "BUSY, AVAILABLE", "BUSY, BUSY"
+    })
+    @DisplayName("updateStatus rejects any transition to or from RESERVED/BUSY with 422")
+    void updateStatus_systemManagedStatus_throws422(DriverStatus from, DriverStatus to) {
+        when(driverRepository.findById(USER_ID)).thenReturn(Optional.of(driverWithStatus(from)));
+
+        BusinessException ex = assertThrows(BusinessException.class, () -> driverService.updateStatus(USER_ID, to, USER_ID));
+
+        assertEquals(422, ex.getStatus().value());
+        assertEquals("INVALID_STATUS_TRANSITION", ex.getCode());
+        verify(driverRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    @DisplayName("updateStatus on another driver's profile throws 403 NOT_OWN_RESOURCE without reading it")
+    void updateStatus_otherDriver_throwsForbidden() {
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> driverService.updateStatus(USER_ID, DriverStatus.AVAILABLE, UUID.randomUUID()));
+
+        assertEquals(HttpStatus.FORBIDDEN, ex.getStatus());
+        assertEquals("NOT_OWN_RESOURCE", ex.getCode());
+        verifyNoInteractions(driverRepository);
+    }
+
+    @Test
+    @DisplayName("updateStatus for a user without a driver profile throws 404 DRIVER_NOT_FOUND")
+    void updateStatus_noProfile_throwsNotFound() {
+        when(driverRepository.findById(USER_ID)).thenReturn(Optional.empty());
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> driverService.updateStatus(USER_ID, DriverStatus.AVAILABLE, USER_ID));
+
+        assertEquals(HttpStatus.NOT_FOUND, ex.getStatus());
+        assertEquals("DRIVER_NOT_FOUND", ex.getCode());
     }
 }

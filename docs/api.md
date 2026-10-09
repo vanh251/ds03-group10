@@ -273,33 +273,43 @@ Get driver details.
 
 ### GET /api/drivers/available
 
-List all AVAILABLE drivers.
+List AVAILABLE drivers. With `latitude` + `longitude`: only drivers within `radiusKm` (Haversine distance), nearest first. Without them: every AVAILABLE driver, `distanceKm` = `null`.
 
-**Auth required:** Yes (PASSENGER or internal)
+**Auth required:** No token checked for now. Called by Matching Service, which has no service credential yet; once it sends one, this becomes "PASSENGER or internal".
 
 **Query Parameters:**
 
 | Param | Type | Required | Description |
 |---|---|---|---|
-| latitude | double | No | Reference point latitude |
-| longitude | double | No | Reference point longitude |
-| radiusKm | double | No | Search radius in km (default: 5.0) |
+| latitude | double | No* | Reference point latitude, -90..90 |
+| longitude | double | No* | Reference point longitude, -180..180 |
+| radiusKm | double | No | Search radius in km (default: 5.0, max 50) |
+
+\* `latitude` and `longitude` must be given together.
 
 **Response 200 OK:**
 ```json
 [
   {
-    "id": "d001",
-    "fullName": "Tran Van B",
+    "id": "d0000000-0000-4000-8000-000000000001",
+    "fullName": "Tran Van Binh",
     "status": "AVAILABLE",
     "location": {
-      "latitude": 21.0285,
-      "longitude": 105.8542
+      "latitude": 21.025,
+      "longitude": 105.857,
+      "updatedAt": "2026-09-30T10:05:00Z"
     },
-    "distanceKm": 1.2
+    "distanceKm": 0.49,
+    "version": 3
   }
 ]
 ```
+
+`version` is the value Matching Service sends as `expectedVersion` to `POST /api/drivers/{id}/reserve` (CAS). `location` is `null` for a driver that never reported a position (only possible without a reference point).
+
+**Errors:**
+- `400 VALIDATION_ERROR` – Coordinate out of range, only one coordinate given, `radiusKm` ≤ 0 or > 50
+- `400 INVALID_PARAMETER` – Non-numeric parameter
 
 ---
 
@@ -370,19 +380,25 @@ Requesting `RESERVED`/`BUSY`, or any transition from `RESERVED`/`BUSY` (e.g. goi
 
 System transitions are never done through this endpoint. Event-driven transitions only apply when `drivers.reserved_for_trip` equals the event's `tripId`.
 
+Requesting the current status (e.g. `AVAILABLE` while already `AVAILABLE`) is an idempotent no-op that returns `200`.
+
 **Response 200 OK:**
 ```json
 {
-  "id": "d001",
+  "id": "d0000000-0000-4000-8000-000000000001",
   "status": "AVAILABLE",
   "updatedAt": "2026-09-30T10:10:00Z"
 }
 ```
 
 **Errors:**
-- `400` – Unknown status value
-- `403` – Not own resource
-- `422` – Invalid status transition
+- `400 VALIDATION_ERROR` / `400 MALFORMED_REQUEST` – Missing / unknown status value
+- `401 MISSING_TOKEN` / `INVALID_TOKEN` / `TOKEN_EXPIRED` – No valid JWT
+- `403 ACCESS_DENIED` – Token role is not `DRIVER`
+- `403 NOT_OWN_RESOURCE` – `{id}` is not the caller's user id
+- `404 DRIVER_NOT_FOUND` – The account has no driver profile
+- `409 CONCURRENT_UPDATE` – The driver changed meanwhile (e.g. reserved by Matching Service); retry
+- `422 INVALID_STATUS_TRANSITION` – Invalid status transition
 
 ---
 

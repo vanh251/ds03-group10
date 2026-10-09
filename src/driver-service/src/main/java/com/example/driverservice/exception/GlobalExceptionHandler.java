@@ -4,6 +4,8 @@ import com.example.driverservice.config.CorrelationIdFilter;
 import com.example.driverservice.dto.response.ErrorResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.MessageSourceResolvable;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -14,6 +16,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
@@ -41,6 +44,26 @@ public class GlobalExceptionHandler {
                 .collect(Collectors.joining("; "));
         log.warn("Validation error on path {}: {}, correlationId={}", request.getRequestURI(), details, correlationId);
         return buildResponse(HttpStatus.BAD_REQUEST, details, "VALIDATION_ERROR", request, correlationId);
+    }
+
+    // Constraint annotations on query parameters, e.g. latitude outside -90..90
+    @ExceptionHandler(HandlerMethodValidationException.class)
+    public ResponseEntity<ErrorResponse> handleMethodValidation(HandlerMethodValidationException ex, HttpServletRequest request) {
+        String correlationId = resolveCorrelationId(request);
+        String details = ex.getAllErrors().stream()
+                .map(MessageSourceResolvable::getDefaultMessage)
+                .collect(Collectors.joining("; "));
+        log.warn("Parameter validation error on path {}: {}, correlationId={}", request.getRequestURI(), details, correlationId);
+        return buildResponse(HttpStatus.BAD_REQUEST, details, "VALIDATION_ERROR", request, correlationId);
+    }
+
+    // The @Version check failed: the driver was changed concurrently (e.g. reserved while going OFFLINE)
+    @ExceptionHandler(OptimisticLockingFailureException.class)
+    public ResponseEntity<ErrorResponse> handleOptimisticLock(OptimisticLockingFailureException ex, HttpServletRequest request) {
+        String correlationId = resolveCorrelationId(request);
+        log.warn("Concurrent update on path {}, correlationId={}", request.getRequestURI(), correlationId);
+        return buildResponse(HttpStatus.CONFLICT, "The driver was changed by another request, please retry",
+                "CONCURRENT_UPDATE", request, correlationId);
     }
 
     // Malformed JSON or an unknown enum value (e.g. vehicleType "TRUCK") fails before bean validation runs
