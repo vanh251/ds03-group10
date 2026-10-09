@@ -21,3 +21,56 @@ Hồ sơ đã tồn tại thì bỏ qua. Vị trí là giả lập quanh Hồ G�
 `d000…00NN` = `d0000000-0000-4000-8000-0000000000NN`.
 
 Kết quả mong đợi của `GET /api/drivers/available?latitude=21.0285&longitude=105.8542` (bán kính mặc định 5 km): 7 tài xế, thứ tự #1, #3, #2, #5, #6, #7, #4. Tài xế #8 bị loại vì ở ngoài 5 km; #9 và #10 vì đang `OFFLINE`.
+
+## Request mẫu
+
+| File | Endpoint | Kết quả mong đợi |
+|---|---|---|
+| `01_status_available.json` | `PATCH /api/drivers/{id}/status` | `200`, `status = AVAILABLE` (gửi lại lần nữa vẫn `200`, không đổi gì) |
+| `02_status_offline.json` | `PATCH /api/drivers/{id}/status` | `200`, `status = OFFLINE` |
+| `03_status_busy_not_allowed.json` | `PATCH /api/drivers/{id}/status` | `422 INVALID_STATUS_TRANSITION` |
+| `04_status_unknown_value.json` | `PATCH /api/drivers/{id}/status` | `400 MALFORMED_REQUEST` |
+| `05_location_hoan_kiem.json` | `PATCH /api/drivers/{id}/location` | `200`, vị trí lưu 6 chữ số thập phân |
+| `06_location_out_of_range.json` | `PATCH /api/drivers/{id}/location` | `400 VALIDATION_ERROR` |
+
+Quyền truy cập:
+
+| Endpoint | Token cần có |
+|---|---|
+| `GET /api/drivers/available` | Không cần (matching-service gọi không kèm token) |
+| `GET /api/drivers/nearby` | `PASSENGER` |
+| `GET /api/drivers/{id}` | Bất kỳ role nào |
+| `PATCH /api/drivers/{id}/status`, `/location` | `DRIVER` và `{id}` phải là chính mình → sai role `403 ACCESS_DENIED`, sửa hồ sơ người khác `403 NOT_OWN_RESOURCE` |
+
+## Luồng demo (qua API Gateway :8080, hoặc gọi thẳng :8082 cho driver và :8081 cho identity)
+
+```bash
+GW=http://localhost:8080
+T=docs/test-data/driver
+
+# 1. Tài xế #9 (đang OFFLINE) đăng nhập; userId trả về chính là driverId
+curl -s -X POST $GW/api/auth/login -H "Content-Type: application/json" \
+  -d '{"email":"driver09@ds03.test","password":"Demo@12345"}'
+DTOKEN=<accessToken>
+DID=d0000000-0000-4000-8000-000000000009
+
+# 2. Bật nhận cuốc và báo vị trí gần Hồ Gươm
+curl -s -X PATCH $GW/api/drivers/$DID/status   -H "Authorization: Bearer $DTOKEN" -H "Content-Type: application/json" -d @$T/01_status_available.json
+curl -s -X PATCH $GW/api/drivers/$DID/location -H "Authorization: Bearer $DTOKEN" -H "Content-Type: application/json" -d @$T/05_location_hoan_kiem.json
+
+# 3. Danh sách tài xế rảnh quanh Hồ Gươm (không cần token): tài xế #9 giờ đứng đầu (~0.25 km)
+curl -s "$GW/api/drivers/available?latitude=21.0285&longitude=105.8542"
+
+# 4. Hành khách tìm 3 tài xế gần nhất và xem chi tiết một tài xế
+curl -s -X POST $GW/api/auth/login -H "Content-Type: application/json" \
+  -d '{"email":"passenger01@ds03.test","password":"Demo@12345"}'
+PTOKEN=<accessToken>
+curl -s "$GW/api/drivers/nearby?latitude=21.0285&longitude=105.8542&limit=3" -H "Authorization: Bearer $PTOKEN"
+curl -s $GW/api/drivers/$DID -H "Authorization: Bearer $PTOKEN"
+
+# 5. Các trường hợp lỗi
+curl -s -X PATCH $GW/api/drivers/$DID/status -H "Authorization: Bearer $DTOKEN" -H "Content-Type: application/json" -d @$T/03_status_busy_not_allowed.json   # 422
+curl -s -X PATCH $GW/api/drivers/d0000000-0000-4000-8000-000000000001/status -H "Authorization: Bearer $DTOKEN" \
+  -H "Content-Type: application/json" -d @$T/02_status_offline.json                                                                  # 403 NOT_OWN_RESOURCE
+curl -s -X PATCH $GW/api/drivers/$DID/status -H "Authorization: Bearer $PTOKEN" -H "Content-Type: application/json" -d @$T/02_status_offline.json   # 403 ACCESS_DENIED
+```
