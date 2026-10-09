@@ -7,11 +7,15 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.servlet.NoHandlerFoundException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.time.Instant;
 import java.util.stream.Collectors;
@@ -54,6 +58,17 @@ public class GlobalExceptionHandler {
         log.warn("Invalid value for parameter '{}' on path {}, correlationId={}", ex.getName(), request.getRequestURI(), correlationId);
         return buildResponse(HttpStatus.BAD_REQUEST, "Invalid value for parameter '" + ex.getName() + "'",
                 "INVALID_PARAMETER", request, correlationId);
+    }
+
+    // Unknown path (404), wrong method (405) or content type (415) keep their status instead of falling into the 500 handler
+    @ExceptionHandler({NoHandlerFoundException.class, NoResourceFoundException.class,
+            HttpRequestMethodNotSupportedException.class, HttpMediaTypeNotSupportedException.class})
+    public ResponseEntity<ErrorResponse> handleSpringMvcError(Exception ex, HttpServletRequest request) {
+        String correlationId = resolveCorrelationId(request);
+        HttpStatus status = HttpStatus.valueOf(((org.springframework.web.ErrorResponse) ex).getStatusCode().value());
+        log.warn("{} {} -> {}, correlationId={}", request.getMethod(), request.getRequestURI(), status.value(), correlationId);
+        return buildResponse(status, status.getReasonPhrase() + ": " + request.getMethod() + " " + request.getRequestURI(),
+                status.name(), request, correlationId);
     }
 
     @ExceptionHandler(Exception.class)

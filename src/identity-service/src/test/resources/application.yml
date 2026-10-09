@@ -12,3 +12,9 @@ jwt:
 app:
   seed:
     enabled: false
+
+driver-service:
+  url: http://driver-service.test
+  connect-timeout: 1s
+  read-timeout: 2s
+  internal-api-key: test-internal-api-key

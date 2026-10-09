@@ -1,23 +1,25 @@
 package com.example.identityservice.dto.request;
 
-import com.example.identityservice.entity.UserRole;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
+import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
 import lombok.ToString;
+import lombok.experimental.SuperBuilder;
 
-@Data
-@Builder
+/**
+ * Account fields shared by passenger and driver registration. The role is not part of the body:
+ * each endpoint sets it, so ADMIN can never be self-registered.
+ */
+@Getter
+@Setter
 @NoArgsConstructor
-@AllArgsConstructor
-@Schema(description = "Request payload to register a new passenger or driver account")
-public class RegisterRequest {
+@SuperBuilder
+@ToString
+public abstract class AccountRegisterRequest {
 
     @Schema(description = "Full name of the user", example = "Nguyen Van A")
     @NotBlank(message = "Full name is required")
@@ -36,8 +38,4 @@ public class RegisterRequest {
     @Size(min = 8, max = 72, message = "Password must be between 8 and 72 characters")
     @ToString.Exclude
     private String password;
-
-    @Schema(description = "Account role: PASSENGER or DRIVER", example = "PASSENGER", allowableValues = {"PASSENGER", "DRIVER"})
-    @NotNull(message = "Role is required")
-    private UserRole role;
 }

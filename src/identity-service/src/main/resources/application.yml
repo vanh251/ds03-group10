@@ -20,6 +20,14 @@ jwt:
   secret: ${JWT_SECRET:dGhpc19pc19hX3Zlcnlfc2VjdXJlX2tleV9mb3JfaHMyNTZfamF2YV9zcHJpbmdfYm9vdF9kczAzX3JpZGVfaGFpbGluZw==}
   expiration-ms: ${JWT_EXPIRATION_MS:86400000}
 
+# driver-service internal API, called by POST /api/auth/register/driver.
+# internal-api-key must equal driver-service's internal.api-key (both read INTERNAL_API_KEY).
+driver-service:
+  url: ${DRIVER_SERVICE_URL:http://localhost:8082}
+  connect-timeout: 1s
+  read-timeout: 2s
+  internal-api-key: ${INTERNAL_API_KEY:local-dev-internal-api-key}
+
 # Fake DRIVER/PASSENGER accounts for local runs and demos (docs/test-data/identity/README.md).
 # Set SEED_DATA_ENABLED=false for any environment that is not a local/demo one.
 app:

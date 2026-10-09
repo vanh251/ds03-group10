@@ -1,7 +1,9 @@
 package com.example.identityservice.controller;
 
+import com.example.identityservice.dto.request.DriverRegisterRequest;
 import com.example.identityservice.dto.request.LoginRequest;
-import com.example.identityservice.dto.request.RegisterRequest;
+import com.example.identityservice.dto.request.PassengerRegisterRequest;
+import com.example.identityservice.dto.response.DriverRegisterResponse;
 import com.example.identityservice.dto.response.ErrorResponse;
 import com.example.identityservice.dto.response.LoginResponse;
 import com.example.identityservice.dto.response.UserResponse;
@@ -29,19 +31,38 @@ public class AuthController {
 
     private final AuthService authService;
 
-    @Operation(summary = "Register a user",
-            description = "Creates a new PASSENGER or DRIVER account. The password is stored as a BCrypt hash. Public endpoint, no JWT required.")
+    @Operation(summary = "Register a passenger",
+            description = "Creates a PASSENGER account. The password is stored as a BCrypt hash. Public endpoint, no JWT required.")
     @ApiResponses({
-            @ApiResponse(responseCode = "201", description = "User registered successfully",
+            @ApiResponse(responseCode = "201", description = "Passenger registered successfully",
                     content = @Content(schema = @Schema(implementation = UserResponse.class))),
-            @ApiResponse(responseCode = "400", description = "Validation failed, malformed body, or role not allowed",
+            @ApiResponse(responseCode = "400", description = "Validation failed or malformed body",
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @ApiResponse(responseCode = "409", description = "Email already registered",
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
-    @PostMapping("/register")
-    public ResponseEntity<UserResponse> register(@Valid @RequestBody RegisterRequest request) {
-        UserResponse response = authService.register(request);
+    @PostMapping("/register/passenger")
+    public ResponseEntity<UserResponse> registerPassenger(@Valid @RequestBody PassengerRegisterRequest request) {
+        UserResponse response = authService.registerPassenger(request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @Operation(summary = "Register a driver with a vehicle",
+            description = "Creates a DRIVER account, then the driver profile and vehicle in driver-service. "
+                    + "If driver-service refuses or cannot be reached, the account is removed again. Public endpoint, no JWT required.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "201", description = "Driver registered; the profile starts OFFLINE",
+                    content = @Content(schema = @Schema(implementation = DriverRegisterResponse.class))),
+            @ApiResponse(responseCode = "400", description = "Validation failed (account fields here, vehicle formats in driver-service)",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "409", description = "Email or license plate already registered",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "503", description = "driver-service unavailable; nothing was kept, the client may retry",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    @PostMapping("/register/driver")
+    public ResponseEntity<DriverRegisterResponse> registerDriver(@Valid @RequestBody DriverRegisterRequest request) {
+        DriverRegisterResponse response = authService.registerDriver(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
