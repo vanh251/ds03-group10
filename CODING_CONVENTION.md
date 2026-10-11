@@ -110,7 +110,7 @@ Chỉ các service có dữ liệu nghiệp vụ lâu dài mới sở hữu Post
 
 ```text
 identity-service     → identity_db  (users, refresh_tokens)
-driver-service       → driver_db    (drivers, vehicles, driver_locations, driver_status)
+driver-service       → driver_db    (drivers, vehicles, driver_locations, driver_status, processed_events)
 trip-service         → trip_db      (trips, outbox_events, processed_events, saga_log)
 matching-service     → matching_db  (match_requests, driver_offers, processed_events)
 payment-service      → payment_db   (payments, ledger, outbox_events, processed_events)
@@ -753,9 +753,11 @@ public enum DriverStatus {
     OFFLINE,         // Không trực tuyến
     AVAILABLE,       // Sẵn sàng nhận cuốc
     RESERVED,        // Đang bị giữ tạm thời bởi Matching Service (CAS lock)
-    BUSY             // Đang thực hiện chuyến đi (hoặc ON_TRIP)
+    BUSY             // Đang thực hiện chuyến đi (không dùng tên ON_TRIP)
 }
 ```
+
+> Bảng chuyển trạng thái đầy đủ (ai/cái gì kích hoạt): [docs/api.md](docs/api.md) → `PATCH /api/drivers/{id}/status`. Tài xế chỉ tự chuyển `OFFLINE ⇄ AVAILABLE`; các chuyển còn lại do hệ thống (CAS reserve, lease, event `DriverAssigned` / `TripCompleted` / `TripCancelled`).
 
 ### 12.3. Quyền hạn người dùng (UserRole)
 
@@ -1091,9 +1093,9 @@ Toàn bộ hệ thống chỉ sử dụng chính xác 8 domain events đã thố
 |---|---|---|---|---|
 | `RideRequested` | `trip-events` | `trip-service` | `matching-service`, `notification-service` | Khách tạo cuốc xe (`POST /api/trips`) |
 | `DriverReserved` | `matching-events` | `matching-service` | `trip-service`, `notification-service` | Matching CAS lock tài xế thành công |
-| `DriverAssigned` | `matching-events` | `matching-service` | `trip-service`, `notification-service` | Hoàn tất gán tài xế cho chuyến |
+| `DriverAssigned` | `trip-events` | `trip-service` | `driver-service`, `notification-service` | Trip nhận `DriverReserved` và chuyển sang `ASSIGNED` (driver: `RESERVED → BUSY`) |
 | `TripStarted` | `trip-events` | `trip-service` | `notification-service` | Tài xế đón khách & bắt đầu chạy |
-| `TripCompleted` | `trip-events` | `trip-service` | `payment-service`, `notification-service` | Tài xế hoàn thành cuốc xe (kích hoạt thanh toán) |
+| `TripCompleted` | `trip-events` | `trip-service` | `payment-service`, `driver-service`, `notification-service` | Tài xế hoàn thành cuốc xe (kích hoạt thanh toán; driver: `BUSY → AVAILABLE`) |
 | `PaymentSucceeded` | `payment-events` | `payment-service` | `trip-service`, `notification-service` | Thu tiền cước thành công (Saga hoàn tất) |
 | `PaymentFailed` | `payment-events` | `payment-service` | `trip-service`, `notification-service` | Thu tiền thất bại (Saga compensation ghi nhận nợ) |
 | `TripCancelled` | `trip-events` | `trip-service` | `driver-service`, `matching-service`, `notification-service` | Khách hủy chuyến hoặc matching timeout |
@@ -1190,7 +1192,7 @@ Trong hệ thống phân tán, Kafka đảm bảo ngữ nghĩa chuyển giao **A
 
 ### 21.1. Kafka Consumer Deduplication (`processed_events` Table)
 
-Các service có database (`trip-service`, `matching-service`, `payment-service`) bắt buộc phải sở hữu bảng deduplication:
+Các service có database và tiêu thụ Kafka (`trip-service`, `matching-service`, `payment-service`, `driver-service`) bắt buộc phải sở hữu bảng deduplication:
 
 ```sql
 CREATE TABLE processed_events (

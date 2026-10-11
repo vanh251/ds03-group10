@@ -752,7 +752,7 @@ This allows the complete transaction to be traced across services.
 | GET    | `/api/drivers/nearby`        | Query nearby available drivers (Redis GEO & spatial) |
 | POST   | `/api/drivers/{id}/reserve`  | CAS lock driver reservation with 30s lease           |
 | DELETE | `/api/drivers/{id}/reserve`  | Compensating action: release driver lock to AVAILABLE|
-| PATCH  | `/api/drivers/{id}/status`   | Update status (OFFLINE/AVAILABLE/ON_TRIP)            |
+| PATCH  | `/api/drivers/{id}/status`   | Update status (OFFLINE/AVAILABLE only; RESERVED/BUSY set by system) |
 | PATCH  | `/api/drivers/{id}/location` | Update real-time GPS location                        |
 | GET    | `/api/drivers/{id}`          | Get driver details                                   |
 
@@ -965,7 +965,7 @@ Trip Service acts as the central **Saga Orchestrator**, tracking every state cha
    * Nếu hành khách hủy hoặc Matching timeout: Orchestrator gọi bồi hoàn đồng bộ `DELETE /api/drivers/{id}/reserve`.
    * Driver Service giải phóng tài xế từ `RESERVED` về `AVAILABLE`. Trip cập nhật sang `CANCELLED`, saga_log ghi `SAGA_COMPENSATED`.
 2. **Sự cố thanh toán sau khi hoàn tất cuốc (Payment Failure after completion):**
-   * Vì hành khách đã được chở đến nơi, tài xế đã hoàn tất nhiệm vụ (`ON_TRIP -> AVAILABLE`).
+   * Vì hành khách đã được chở đến nơi, tài xế đã hoàn tất nhiệm vụ: Driver Service nhận `TripCompleted` và chuyển `BUSY -> AVAILABLE` ngay, không chờ kết quả thanh toán (xem `events.md` §4.5).
    * Orchestrator đánh dấu `trip.status = PAYMENT_FAILED` và ghi lỗi vào `saga_log` để thực hiện retry hoặc ghi nhận nợ, tuyệt đối **không rollback** sai trạng thái đặt xe của tài xế.
 
 Đề bài DS03 yêu cầu ít nhất một distributed transaction sử dụng **Saga hoặc compensating actions**.
@@ -1351,7 +1351,7 @@ Mỗi business service sở hữu database PostgreSQL riêng biệt theo đặc 
 
 ```text
 identity-db      → db_identity     (users, refresh_tokens)
-driver-db        → db_driver       (drivers, vehicles, driver_locations + Redis GEO)
+driver-db        → db_driver       (drivers, vehicles, driver_locations, processed_events + Redis GEO)
 trip-db          → db_trip         (trips, saga_log, outbox_events, processed_events, idempotency_keys)
 matching-db      → db_matching     (match_requests, driver_offers, processed_events)
 pricing-db       → db_pricing      (fare_rules, surge_zones, quotes)

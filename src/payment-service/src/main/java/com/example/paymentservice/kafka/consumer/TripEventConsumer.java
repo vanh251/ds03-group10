@@ -5,6 +5,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
+import org.slf4j.MDC;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
@@ -25,6 +26,10 @@ public class TripEventConsumer {
             String eventId = rootNode.path("eventId").asText();
             String correlationId = rootNode.path("correlationId").asText();
 
+            if (correlationId != null && !correlationId.isEmpty()) {
+                MDC.put("correlationId", correlationId);
+            }
+
             log.info("Received message from {}: eventType={}, eventId={}, correlationId={}",
                     TRIP_EVENTS_TOPIC, eventType, eventId, correlationId);
 
@@ -40,6 +45,8 @@ public class TripEventConsumer {
             }
         } catch (Exception e) {
             log.error("Error processing trip event message: {}", message, e);
+        } finally {
+            MDC.remove("correlationId");
         }
     }
 }

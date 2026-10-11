@@ -263,7 +263,7 @@ Each business service owns its exclusive PostgreSQL instance. Services must **ne
 | Service | Database Name | Key Tables |
 |---|---|---|
 | identity-service | `identity_db` | `users`, `refresh_tokens` |
-| driver-service | `driver_db` | `drivers`, `vehicles`, `driver_locations`, `driver_status` |
+| driver-service | `driver_db` | `drivers`, `vehicles`, `driver_locations`, `driver_status`, `processed_events` |
 | trip-service | `trip_db` | `ride_requests`, `trips`, `trip_status_history`, `saga_log`, `outbox_events`, `processed_events`, `idempotency_keys` |
 | matching-service | `matching_db` | `match_requests`, `driver_offers`, `processed_events` |
 | payment-service | `payment_db` | `payments`, `ledger`, `outbox_events`, `processed_events` |

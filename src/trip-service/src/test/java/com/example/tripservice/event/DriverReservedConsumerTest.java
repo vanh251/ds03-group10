@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.UUID;
@@ -19,6 +20,12 @@ class DriverReservedConsumerTest {
     @Mock
     private TripService tripService;
 
+    @Mock
+    private com.example.tripservice.repository.ProcessedEventRepository processedEventRepository;
+
+    @Spy
+    private tools.jackson.databind.ObjectMapper objectMapper = new tools.jackson.databind.ObjectMapper();
+
     @InjectMocks
     private DriverReservedConsumer consumer;
 
@@ -30,6 +37,7 @@ class DriverReservedConsumerTest {
 
         String payload = """
                 {
+                  "eventId": "50e4a77d-f434-40da-9e45-f09b52a13cc7",
                   "eventType": "DriverReserved",
                   "payload": {
                     "tripId": "%s",
@@ -50,6 +58,7 @@ class DriverReservedConsumerTest {
     void handleDriverReserved_otherEvent_ignored() {
         String payload = """
                 {
+                  "eventId": "50e4a77d-f434-40da-9e45-f09b52a13cc7",
                   "eventType": "OtherEvent"
                 }
                 """;

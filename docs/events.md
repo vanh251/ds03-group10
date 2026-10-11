@@ -250,7 +250,7 @@ A driver has been formally assigned to the trip by Trip Service.
 
 | Consumer | Action |
 |---|---|
-| driver-service | Update driver status: `RESERVED -> BUSY` |
+| driver-service | Dedup via `eventId` → update driver status `RESERVED -> BUSY` only if `drivers.reserved_for_trip = tripId`; clear `reserved_until` (lease no longer applies); keep `reserved_for_trip`. No match → log and skip |
 | notification-service | Notify driver: "You have been assigned a new trip" |
 
 ---
@@ -261,7 +261,9 @@ The driver has started the trip (picked up the passenger).
 
 **Topic:** `trip-events`  
 **Producer:** `trip-service`  
-**Consumers:** `driver-service`, `notification-service`
+**Consumers:** `notification-service`
+
+> driver-service does **not** consume this event: the driver is already `BUSY` since `driver.assigned`.
 
 **Trigger:** Driver calls `POST /api/trips/{id}/start`
 
@@ -305,7 +307,7 @@ The driver has completed the trip (arrived at destination). Triggers payment pro
 
 **Topic:** `trip-events`  
 **Producer:** `trip-service`  
-**Consumers:** `payment-service`, `notification-service`
+**Consumers:** `payment-service`, `driver-service`, `notification-service`
 
 **Trigger:** Driver calls `POST /api/trips/{id}/complete`
 
@@ -340,7 +342,10 @@ The driver has completed the trip (arrived at destination). Triggers payment pro
 | Consumer | Action |
 |---|---|
 | payment-service | Deduplicate via `eventId` → process charge → publish `payment.success` or `payment.failed` |
+| driver-service | Dedup via `eventId` → release driver `BUSY -> AVAILABLE` only if `drivers.reserved_for_trip = tripId`; clear `reserved_for_trip`, `version + 1`. No match → log and skip |
 | notification-service | Notify passenger: "Trip completed. Processing payment..." |
+
+> The driver is released as soon as the trip is completed, **independent of the payment result**. A later `payment.failed` never moves the driver back (see §9 and SRS §13.2).
 
 ---
 
@@ -481,7 +486,7 @@ A trip has been cancelled by the passenger (or timeout).
 
 | Consumer | Action |
 |---|---|
-| driver-service | Release driver: `RESERVED/BUSY -> AVAILABLE` (if driverId is set) |
+| driver-service | Dedup via `eventId` → find driver by `driverId`; if `driverId` is missing, by `reserved_for_trip = tripId` → release `RESERVED/BUSY -> AVAILABLE` only if `drivers.reserved_for_trip = tripId`; clear `reserved_for_trip` and `reserved_until`, `version + 1`. No match (no driver assigned yet, or driver already on another trip) → log and skip |
 | matching-service | Cancel any in-progress matching job |
 | notification-service | Notify passenger: "Trip cancelled" |
 | notification-service | Notify driver (if assigned): "Trip has been cancelled" |
@@ -495,6 +500,7 @@ A trip has been cancelled by the passenger (or timeout).
 | matching-service | `matching-service-group` | `trip-events` |
 | trip-service | `trip-service-group` | `matching-events`, `payment-events` |
 | payment-service | `payment-service-group` | `trip-events` (for `trip.completed` only) |
+| driver-service | `driver-service-group` | `trip-events` |
 | notification-service | `notification-service-group` | `trip-events`, `matching-events`, `payment-events` |
 
 ### Event Type Filtering per Consumer
@@ -507,9 +513,12 @@ Each consumer filters by `eventType` within its subscribed topics:
 | trip-service | `matching-events` | `DriverReserved` |
 | trip-service | `payment-events` | `PaymentSucceeded`, `PaymentFailed` |
 | payment-service | `trip-events` | `TripCompleted` |
+| driver-service | `trip-events` | `DriverAssigned`, `TripCompleted`, `TripCancelled` |
 | notification-service | `trip-events` | `RideRequested`, `DriverAssigned`, `TripStarted`, `TripCompleted`, `TripCancelled` |
 | notification-service | `matching-events` | `DriverReserved` |
 | notification-service | `payment-events` | `PaymentSucceeded`, `PaymentFailed` |
+
+> driver-service follows the same consumer rules as the other services: dedup via `processed_events` (§7), bounded retry (§8), then `trip-events.DLQ` (§6). Other event types on `trip-events` are ignored.
 
 ---
 
@@ -601,6 +610,7 @@ ACK Kafka message
 | trip-service | `trip_db` | `processed_events` |
 | matching-service | `matching_db` | `processed_events` |
 | payment-service | `payment_db` | `processed_events` |
+| driver-service | `driver_db` | `processed_events` |
 
 > **Note:** Notification service is best-effort (no deduplication). Duplicate notifications are acceptable in demo scope.
 
@@ -673,6 +683,10 @@ Complete event flow for a successful ride:
 [6] trip-service publishes: driver.assigned -> trip-events
         |
         v
+[6a] driver-service consumes: driver.assigned
+        |  -> Deduplication check
+        |  -> Driver status: RESERVED -> BUSY (clear reserved_until)
+        v
 [7] notification-service consumes all above events (fan-out)
         |
         v
@@ -684,6 +698,10 @@ Complete event flow for a successful ride:
         v
 [10] trip-service publishes: trip.completed -> trip-events
         |
+        +--> [10a] driver-service consumes: trip.completed  (in parallel with [11])
+        |          -> Deduplication check
+        |          -> Driver status: BUSY -> AVAILABLE (clear reserved_for_trip)
+        |          -> Not affected by the payment result
         v
 [11] payment-service consumes: trip.completed
         |  -> Deduplication check

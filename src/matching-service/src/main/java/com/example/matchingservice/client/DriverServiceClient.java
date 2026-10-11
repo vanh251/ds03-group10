@@ -23,10 +23,15 @@ public class DriverServiceClient {
     private final RestClient restClient;
 
     public DriverServiceClient(
-            @Value("${driver-service.url:http://driver-service:8082}") String driverServiceUrl,
-            RestClient.Builder restClientBuilder) {
+            @Value("${driver-service.url:http://driver-service:8082}") String driverServiceUrl) {
         log.info("Configuring DriverServiceClient with baseUrl: {}", driverServiceUrl);
-        this.restClient = restClientBuilder.baseUrl(driverServiceUrl).build();
+        org.springframework.http.client.SimpleClientHttpRequestFactory requestFactory = new org.springframework.http.client.SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(1000);
+        requestFactory.setReadTimeout(2000);
+        this.restClient = RestClient.builder()
+                .baseUrl(driverServiceUrl)
+                .requestFactory(requestFactory)
+                .build();
     }
 
     public List<AvailableDriverDto> getAvailableDrivers(Double lat, Double lng, Double radiusKm) {

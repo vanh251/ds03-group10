@@ -23,6 +23,15 @@ class TripServiceApplicationTests {
     @MockitoBean
     private TripEventPublisher tripEventPublisher;
 
+    @MockitoBean
+    private com.example.tripservice.repository.SagaLogRepository sagaLogRepository;
+
+    @MockitoBean
+    private com.example.tripservice.repository.ProcessedEventRepository processedEventRepository;
+
+    @MockitoBean
+    private com.example.tripservice.repository.OutboxEventRepository outboxEventRepository;
+
     @Test
     void contextLoads() {
     }
