@@ -26,7 +26,7 @@
 
 ## 1. Authentication
 
-All requests to backend services (except `/api/auth/register` and `/api/auth/login`) require:
+All requests to backend services (except `/api/auth/register/passenger`, `/api/auth/register/driver` and `/api/auth/login`) require:
 
 ```
 Authorization: Bearer <accessToken>
@@ -51,9 +51,9 @@ Authorization: Bearer <accessToken>
 
 ---
 
-### POST /api/auth/register
+### POST /api/auth/register/passenger
 
-Register a new user.
+Register a passenger account. The role is set by the endpoint (`PASSENGER`); a `role` field in the body is ignored.
 
 **Auth required:** No
 
@@ -62,17 +62,15 @@ Register a new user.
 {
   "fullName": "Nguyen Van A",
   "email": "user@example.com",
-  "password": "securePassword123",
-  "role": "PASSENGER"
+  "password": "securePassword123"
 }
 ```
 
 | Field | Type | Required | Constraints |
 |---|---|---|---|
 | fullName | string | Yes | 1-100 chars |
-| email | string | Yes | Valid email, unique |
-| password | string | Yes | Min 8 chars |
-| role | enum | Yes | `PASSENGER` or `DRIVER` |
+| email | string | Yes | Valid email, unique (stored trimmed and lower-cased) |
+| password | string | Yes | 8-72 chars (BCrypt limit) |
 
 **Response 201 Created:**
 ```json
@@ -86,8 +84,93 @@ Register a new user.
 ```
 
 **Errors:**
-- `400` – Validation error (missing field, invalid email format)
-- `409` – Email already registered
+- `400 VALIDATION_ERROR` – Missing field, invalid email format, password length
+- `409 EMAIL_ALREADY_REGISTERED` – Email already registered
+
+---
+
+### POST /api/auth/register/driver
+
+Register a driver account together with the driver profile and vehicle. The account lives in `identity_db`, the profile and vehicle in `driver_db`, so this endpoint runs a saga with compensation (CODING_CONVENTION §30–31):
+
+```
+identity-service                                     driver-service
+1. validate account fields (+ presence of driver fields)
+2. INSERT user (role DRIVER) → COMMIT
+3. POST /internal/drivers {userId, fullName, licenseNumber, vehicle}  ──►  validate formats, INSERT drivers + vehicles
+   (timeouts: connect 1s, read 2s)
+4a. 201                    → return 201
+4b. 400 / 409              → driver-service created nothing → delete user → return the same 400 / 409 code
+4c. timeout / 5xx / down   → outcome unknown → DELETE /internal/drivers?userId=… (idempotent)
+                             → delete user → 503 DRIVER_SERVICE_UNAVAILABLE
+                             (a failed compensation is logged at ERROR with the userId for manual cleanup)
+```
+
+> Known limitations (accepted for this project, no reconciliation job yet):
+> - Between steps 2 and 4b/4c (a few seconds at most, bounded by the timeouts) the account exists, so a login with the same credentials during that window would get a token for an account that is then deleted.
+> - In 4c, if driver-service is still processing the create when the compensating DELETE arrives, the DELETE finds nothing (204) and the profile is committed afterwards, leaving an orphan profile whose plate stays taken. identity-service cannot detect this; it shows up as `409 LICENSE_PLATE_ALREADY_REGISTERED` on a retry and must be removed by hand.
+
+**Auth required:** No
+
+**Request Body:**
+```json
+{
+  "fullName": "Tran Van B",
+  "email": "driver@example.com",
+  "password": "securePassword123",
+  "licenseNumber": "012345678901",
+  "vehicle": {
+    "licensePlate": "29A-123.45",
+    "make": "Toyota",
+    "model": "Vios",
+    "color": "White",
+    "year": 2022,
+    "vehicleType": "SEDAN"
+  }
+}
+```
+
+| Field | Type | Required | Constraints (checked by) |
+|---|---|---|---|
+| fullName, email, password | | Yes | Same as passenger (identity) |
+| licenseNumber | string | Yes | Exactly 12 digits (driver) |
+| vehicle.licensePlate | string | Yes | `29A-12345`, `29A-123.45`, `29A-1234`, `29B1-12345`, `30LD-12345`; stored upper-case without dots; unique (driver) |
+| vehicle.make / model | string | Yes | 1-50 chars (driver) |
+| vehicle.color | string | Yes | 1-30 chars (driver) |
+| vehicle.year | int | Yes | 1980 to next year (driver) |
+| vehicle.vehicleType | enum | Yes | `SEDAN`, `SUV`, `MOTORBIKE`, `VAN` (driver) |
+
+**Response 201 Created:**
+```json
+{
+  "id": "a1b2c3d4-...",
+  "fullName": "Tran Van B",
+  "email": "driver@example.com",
+  "role": "DRIVER",
+  "createdAt": "2026-09-30T10:00:00Z",
+  "driver": {
+    "driverId": "a1b2c3d4-...",
+    "status": "OFFLINE",
+    "licenseNumber": "012345678901",
+    "vehicle": {
+      "vehicleId": "v001-...",
+      "licensePlate": "29A-12345",
+      "make": "Toyota",
+      "model": "Vios",
+      "color": "White",
+      "year": 2022,
+      "vehicleType": "SEDAN"
+    }
+  }
+}
+```
+
+**Errors:**
+- `400 VALIDATION_ERROR` – Missing field, or a format rejected by driver-service (plate, license number, year)
+- `400 MALFORMED_REQUEST` – Unknown `vehicleType`
+- `409 EMAIL_ALREADY_REGISTERED` – Email already registered
+- `409 LICENSE_PLATE_ALREADY_REGISTERED` – Plate already registered
+- `503 DRIVER_SERVICE_UNAVAILABLE` – driver-service did not answer in time; nothing was kept, the client may retry
 
 ---
 
@@ -156,97 +239,124 @@ Get user profile.
 **Internal address:** `http://driver-service:8082`  
 **Gateway prefix:** `/api/drivers/**`
 
+> **Driver id = user id.** A driver's id is its identity `userId` (`drivers.driver_id = users.user_id`, see database_schema.md). The `{id}` in every `/api/drivers/{id}` URL, the JWT `sub` of a driver, the `X-User-Id` header and every `driverId` field (matching, trip, events) carry the same value.
+
 ---
 
 ### GET /api/drivers/{id}
 
-Get driver details.
+Get driver details: profile, active vehicle and last known position.
 
-**Auth required:** Yes
+**Auth required:** Yes (any role)
 
 **Response 200 OK:**
 ```json
 {
-  "id": "d001",
-  "userId": "a1b2c3d4-...",
-  "fullName": "Tran Van B",
+  "id": "d0000000-0000-4000-8000-000000000001",
+  "fullName": "Tran Van Binh",
   "status": "AVAILABLE",
   "vehicle": {
-    "licensePlate": "29A-12345",
-    "model": "Toyota Vios",
-    "color": "White"
+    "vehicleId": "7c9e6679-...",
+    "licensePlate": "30A-10001",
+    "make": "Toyota",
+    "model": "Vios",
+    "color": "White",
+    "year": 2021,
+    "vehicleType": "SEDAN"
   },
   "location": {
-    "latitude": 21.0285,
-    "longitude": 105.8542,
+    "latitude": 21.025,
+    "longitude": 105.857,
     "updatedAt": "2026-09-30T10:05:00Z"
   }
 }
 ```
 
+`id` is the driver's user id (no separate `userId` field). `vehicle` is `null` when the driver has no active vehicle. `location` is `null` when the driver never reported a position, and also when the driver is `OFFLINE` and the caller is someone else: an off-duty driver's last position (often home) is shown only to that driver.
+
+**Errors:**
+- `400 INVALID_PARAMETER` – `{id}` is not a UUID
+- `401` – Missing, invalid or expired JWT
+- `404 DRIVER_NOT_FOUND` – No driver with this id
+
 ---
 
 ### GET /api/drivers/available
 
-List all AVAILABLE drivers.
+List AVAILABLE drivers near a point: the `limit` nearest drivers within `radiusKm` (Haversine distance), nearest first. Same search as `/nearby`, plus the `version` and `status` Matching Service needs.
 
-**Auth required:** Yes (PASSENGER or internal)
+**Auth required:** No token checked for now. Called by Matching Service, which has no service credential yet; once it sends one, this becomes "PASSENGER or internal". Until then the gateway also exposes it publicly, so the required point and the `radiusKm` / `limit` caps keep a caller from listing the whole fleet in one request.
 
 **Query Parameters:**
 
 | Param | Type | Required | Description |
 |---|---|---|---|
-| latitude | double | No | Reference point latitude |
-| longitude | double | No | Reference point longitude |
-| radiusKm | double | No | Search radius in km (default: 5.0) |
+| latitude | double | Yes | Reference point (pickup) latitude, -90..90 |
+| longitude | double | Yes | Reference point (pickup) longitude, -180..180 |
+| radiusKm | double | No | Search radius in km (default: 5.0, max 50) |
+| limit | int | No | Maximum number of drivers (default: 20, 1..50) |
 
 **Response 200 OK:**
 ```json
 [
   {
-    "id": "d001",
-    "fullName": "Tran Van B",
+    "id": "d0000000-0000-4000-8000-000000000001",
+    "fullName": "Tran Van Binh",
     "status": "AVAILABLE",
     "location": {
-      "latitude": 21.0285,
-      "longitude": 105.8542
+      "latitude": 21.025,
+      "longitude": 105.857,
+      "updatedAt": "2026-09-30T10:05:00Z"
     },
-    "distanceKm": 1.2
+    "distanceKm": 0.49,
+    "version": 3
   }
 ]
 ```
+
+`version` is the value Matching Service sends as `expectedVersion` to `POST /api/drivers/{id}/reserve` (CAS). Drivers that never reported a position are not listed.
+
+**Errors:**
+- `400 VALIDATION_ERROR` – Missing `latitude` / `longitude`, coordinate out of range, `radiusKm` ≤ 0 or > 50, `limit` outside 1..50
+- `400 INVALID_PARAMETER` – Non-numeric parameter
 
 ---
 
 ### GET /api/drivers/nearby
 
-Query nearby AVAILABLE drivers (spatial search).
+Query nearby AVAILABLE drivers (spatial search): the `limit` nearest drivers within `radiusKm` (Haversine distance), nearest first.
 
-**Auth required:** Yes (PASSENGER or Matching Service internally)
+**Auth required:** Yes (PASSENGER). Matching Service uses `GET /api/drivers/available` instead, so no internal caller needs this endpoint today.
 
 **Query Parameters:**
 
 | Param | Type | Required | Description |
 |---|---|---|---|
-| latitude | double | Yes | Pickup latitude |
-| longitude | double | Yes | Pickup longitude |
-| radiusKm | double | No | Radius in km (default: 5.0) |
-| limit | int | No | Max results (default: 10) |
+| latitude | double | Yes | Pickup latitude, -90..90 |
+| longitude | double | Yes | Pickup longitude, -180..180 |
+| radiusKm | double | No | Radius in km (default: 5.0, max 50) |
+| limit | int | No | Max results (default: 10, 1-50) |
 
 **Response 200 OK:**
 ```json
 [
   {
-    "id": "d001",
-    "fullName": "Tran Van B",
-    "distanceKm": 0.8,
+    "id": "d0000000-0000-4000-8000-000000000001",
+    "fullName": "Tran Van Binh",
+    "distanceKm": 0.49,
     "location": {
-      "latitude": 21.029,
-      "longitude": 105.855
+      "latitude": 21.025,
+      "longitude": 105.857,
+      "updatedAt": "2026-09-30T10:05:00Z"
     }
   }
 ]
 ```
+
+**Errors:**
+- `400 VALIDATION_ERROR` – Missing coordinate, value out of range, `limit` outside 1-50
+- `401` – Missing, invalid or expired JWT
+- `403 ACCESS_DENIED` – Token role is not `PASSENGER`
 
 ---
 
@@ -285,19 +395,25 @@ Requesting `RESERVED`/`BUSY`, or any transition from `RESERVED`/`BUSY` (e.g. goi
 
 System transitions are never done through this endpoint. Event-driven transitions only apply when `drivers.reserved_for_trip` equals the event's `tripId`.
 
+Requesting the current status (e.g. `AVAILABLE` while already `AVAILABLE`) is an idempotent no-op that returns `200`.
+
 **Response 200 OK:**
 ```json
 {
-  "id": "d001",
+  "id": "d0000000-0000-4000-8000-000000000001",
   "status": "AVAILABLE",
   "updatedAt": "2026-09-30T10:10:00Z"
 }
 ```
 
 **Errors:**
-- `400` – Unknown status value
-- `403` – Not own resource
-- `422` – Invalid status transition
+- `400 VALIDATION_ERROR` / `400 MALFORMED_REQUEST` – Missing / unknown status value
+- `401 MISSING_TOKEN` / `INVALID_TOKEN` / `TOKEN_EXPIRED` – No valid JWT
+- `403 ACCESS_DENIED` – Token role is not `DRIVER`
+- `403 NOT_OWN_RESOURCE` – `{id}` is not the caller's user id
+- `404 DRIVER_NOT_FOUND` – The account has no driver profile
+- `409 CONCURRENT_UPDATE` – The driver changed meanwhile (e.g. reserved by Matching Service); retry
+- `422 INVALID_STATUS_TRANSITION` – Invalid status transition
 
 ---
 
@@ -315,10 +431,12 @@ Update driver GPS location (simulated).
 }
 ```
 
+Stored with 6 decimals (`DECIMAL(9, 6)`) together with `last_heartbeat_at`. A position report does **not** change the driver's `version`, so the app can report every few seconds without making a pending reservation (CAS on `version`) fail.
+
 **Response 200 OK:**
 ```json
 {
-  "id": "d001",
+  "id": "d0000000-0000-4000-8000-000000000001",
   "location": {
     "latitude": 21.0300,
     "longitude": 105.8560,
@@ -326,6 +444,12 @@ Update driver GPS location (simulated).
   }
 }
 ```
+
+**Errors:**
+- `400 VALIDATION_ERROR` – Missing coordinate, latitude outside -90..90 or longitude outside -180..180
+- `401` – Missing, invalid or expired JWT
+- `403 ACCESS_DENIED` / `NOT_OWN_RESOURCE` – Not a DRIVER token / not the caller's own profile
+- `404 DRIVER_NOT_FOUND` – The account has no driver profile
 
 ---
 
@@ -364,6 +488,38 @@ Reserve a driver (CAS lock with 30s lease). Used internally by Matching Service.
 Release driver reservation (compensating action). Returns driver to AVAILABLE.
 
 **Auth required:** Yes (internal service call)
+
+**Response 204 No Content**
+
+---
+
+### Internal APIs (identity-service → driver-service)
+
+Service-to-service endpoints used by `POST /api/auth/register/driver`. They are **not routed by the API Gateway** and require the header `X-Internal-Api-Key` (value of `INTERNAL_API_KEY`, shared by both services) instead of a JWT. Missing or wrong key → `401 INVALID_INTERNAL_API_KEY`.
+
+#### POST /internal/drivers
+
+Create the driver profile (status `OFFLINE`) and its vehicle.
+
+**Request Body:**
+```json
+{
+  "userId": "a1b2c3d4-...",
+  "fullName": "Tran Van B",
+  "licenseNumber": "012345678901",
+  "vehicle": { "licensePlate": "29A-123.45", "make": "Toyota", "model": "Vios", "color": "White", "year": 2022, "vehicleType": "SEDAN" }
+}
+```
+
+`userId` becomes the `driverId`; `fullName` is stored as a copy so driver lists (`/available`, `/nearby`) need no call to identity-service.
+
+**Response 201 Created:** `{ "driverId" (= userId), "fullName", "status": "OFFLINE", "licenseNumber", "vehicle": {...}, "createdAt" }`
+
+**Errors:** `400` validation, `401` internal key, `409 DRIVER_PROFILE_EXISTS` (one profile per user), `409 LICENSE_PLATE_ALREADY_REGISTERED`
+
+#### DELETE /internal/drivers?userId={userId}
+
+Compensation step. Deletes the profile (`driver_id = userId`) and vehicle of the user. Idempotent: `204` also when no profile exists. Only a profile that is `OFFLINE` and not reserved can be deleted, otherwise `409 DRIVER_PROFILE_IN_USE`.
 
 **Response 204 No Content**
 
@@ -761,6 +917,7 @@ Get payment status for a trip.
 | `X-Correlation-ID` | No (auto-generated if absent) | Trace ID for distributed tracing |
 | `X-Request-ID` | No | Unique per-request ID |
 | `X-Idempotency-Key` | Required for payment charge | Prevents duplicate operations |
+| `X-Internal-Api-Key` | Required for `/internal/**` (service-to-service only) | Shared secret `INTERNAL_API_KEY`; never sent by clients |
 
 ### Pagination (for list endpoints)
 
@@ -788,7 +945,7 @@ Error responses follow:
   "status": 400,
   "error": "Bad Request",
   "message": "Email already registered",
-  "path": "/api/auth/register",
+  "path": "/api/auth/register/passenger",
   "correlationId": "corr-001"
 }
 ```
@@ -831,3 +988,4 @@ All client requests enter via `http://localhost:8080`.
 | `/actuator/health` | api-gateway | (local) |
 
 > No `lb://` scheme is used. Service discovery is via Docker DNS only.
+> `/internal/**` (service-to-service APIs) is intentionally **not** routed by the gateway.

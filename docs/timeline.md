@@ -149,7 +149,8 @@ PAID
 #### Identity Service
 
 ```text
-POST /api/auth/register
+POST /api/auth/register/passenger
+POST /api/auth/register/driver
 POST /api/auth/login
 GET  /api/users/{id}
 ```

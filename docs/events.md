@@ -75,6 +75,8 @@ All events share a common envelope:
 }
 ```
 
+> **Identifiers:** every `driverId` in an event payload is the driver's identity user id (`drivers.driver_id = users.user_id`), the same value as the JWT `sub` and the `X-User-Id` header of that driver.
+
 ### Envelope Fields
 
 | Field | Type | Required | Description |
@@ -671,7 +673,7 @@ Complete event flow for a successful ride:
         |
         v
 [3] matching-service consumes: trip.requested
-        |  -> GET /api/drivers/nearby
+        |  -> GET /api/drivers/available
         |  -> POST /api/drivers/{id}/reserve (CAS)
         v  (saga_log: not applicable for matching-service)
 [4] matching-service publishes: driver.reserved -> matching-events

@@ -3,3 +3,14 @@ spring:
     exclude:
       - org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration
       - org.springframework.boot.hibernate.autoconfigure.HibernateJpaAutoConfiguration
+
+internal:
+  api-key: test-internal-api-key
+
+# Test-only key (Base64, 408 bits), never used outside the test suite
+jwt:
+  secret: dGVzdC1vbmx5LWp3dC1zZWNyZXQta2V5LWZvci1pZGVudGl0eS1zZXJ2aWNlLXRlc3Rz
+
+app:
+  seed:
+    enabled: false

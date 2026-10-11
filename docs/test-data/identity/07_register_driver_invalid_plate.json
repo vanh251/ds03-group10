@@ -1,0 +1,14 @@
+{
+  "fullName": "Le Van C",
+  "email": "driver.badplate@ds03.test",
+  "password": "Demo@12345",
+  "licenseNumber": "012345678902",
+  "vehicle": {
+    "licensePlate": "ABC-999",
+    "make": "Honda",
+    "model": "City",
+    "color": "Black",
+    "year": 2021,
+    "vehicleType": "SEDAN"
+  }
+}

@@ -71,7 +71,7 @@ flowchart LR
     UC2 -.->|"③ Event: trip.requested"| UC4
 
     %% ── Step 4: Matching queries nearby drivers (Sync REST) ──
-    UC4 -->|"④ Sync REST: GET /api/drivers/nearby"| UC3b
+    UC4 -->|"④ Sync REST: GET /api/drivers/available"| UC3b
 
     %% ── Step 5: Matching locks driver via CAS (Sync REST) ──
     UC4 -->|"⑤ Sync REST: POST /api/drivers/{id}/reserve"| UC3c
@@ -139,7 +139,7 @@ flowchart LR
     KF -.->|"③ Event: trip.requested"| MATCH
 
     %% ── Step 4: Matching queries nearby drivers (Sync REST) ──
-    MATCH -->|"④ Sync REST: GET /api/drivers/nearby\n⚠️ If Driver dies, Match fails"| DRIVER
+    MATCH -->|"④ Sync REST: GET /api/drivers/available\n⚠️ If Driver dies, Match fails"| DRIVER
 
     %% ── Step 5: Matching locks driver via CAS (Sync REST) ──
     MATCH -->|"⑤ Sync REST: POST /api/drivers/{id}/reserve (CAS Lock)\n⚠️ If Driver dies, Match fails"| DRIVER
@@ -225,7 +225,7 @@ sequenceDiagram
     Match->>Match: Save match_requests(PENDING)
 
     Note right of Match: ⚠️ Sync REST: If Driver/Location dies, Matching fails
-    Match->>Loc: GET /api/drivers/nearby?lat=X&lng=Y&radius=3km (Sync REST)
+    Match->>Loc: GET /api/drivers/available?latitude=X&longitude=Y&radiusKm=3 (Sync REST)
     Loc-->>Match: 200 OK [{driverId, distance, rating, version}] sorted by score
 
     Note right of Match: ⚠️ Concurrency Control (C1 Race Condition CAS)

@@ -736,11 +736,12 @@ This allows the complete transaction to be traced across services.
 
 ## 9.1. Identity Service
 
-| Method | Endpoint             | Description |
-| ------ | -------------------- | ----------- |
-| POST   | `/api/auth/register` | Register    |
-| POST   | `/api/auth/login`    | Login       |
-| GET    | `/api/users/{id}`    | Get user    |
+| Method | Endpoint                       | Description                              |
+| ------ | ------------------------------ | ---------------------------------------- |
+| POST   | `/api/auth/register/passenger` | Register a passenger                     |
+| POST   | `/api/auth/register/driver`    | Register a driver with vehicle (saga)    |
+| POST   | `/api/auth/login`              | Login                                    |
+| GET    | `/api/users/{id}`              | Get user                                 |
 
 ---
 

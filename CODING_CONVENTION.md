@@ -537,7 +537,7 @@ Tất cả REST Controller **bắt buộc** phải khai báo đầy đủ các O
 ### 1. Ở cấp Controller Class:
 * `@Tag(name = "...", description = "...")`: Gom nhóm endpoint theo domain nghiệp vụ. Tên tag phải rõ ràng (ví dụ: `Trips`, `Matching`, `Pricing`, `Payments`, `Notifications`, `Authentication`, `Drivers`), tuyệt đối không dùng tên vô nghĩa như `Controller`, `Demo`, `Test`.
 * `@SecurityRequirement(name = "bearerAuth")`: Đặt ở class level nếu toàn bộ endpoint trong Controller yêu cầu JWT Bearer Token, hoặc đặt ở từng method được bảo vệ.
-* **Public APIs** (ví dụ: `/api/auth/register`, `/api/auth/login`): **Không** gắn `@SecurityRequirement`.
+* **Public APIs** (ví dụ: `/api/auth/register/passenger`, `/api/auth/register/driver`, `/api/auth/login`): **Không** gắn `@SecurityRequirement`.
 
 ### 2. Ở cấp Method / Endpoint:
 * `@Operation(summary = "...", description = "...")`:

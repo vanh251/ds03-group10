@@ -3,3 +3,18 @@ spring:
     exclude:
       - org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration
       - org.springframework.boot.hibernate.autoconfigure.HibernateJpaAutoConfiguration
+
+# Test-only key (Base64, 408 bits), never used outside the test suite
+jwt:
+  secret: dGVzdC1vbmx5LWp3dC1zZWNyZXQta2V5LWZvci1pZGVudGl0eS1zZXJ2aWNlLXRlc3Rz
+  expiration-ms: 3600000
+
+app:
+  seed:
+    enabled: false
+
+driver-service:
+  url: http://driver-service.test
+  connect-timeout: 1s
+  read-timeout: 2s
+  internal-api-key: test-internal-api-key
