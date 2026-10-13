@@ -808,16 +808,18 @@ Tất cả request từ bên ngoài (Clients/Postman) bắt buộc phải đi qu
 |---|---|---|
 | `/api/auth/**` | `identity-service` | `http://identity-service:8081/api/auth/**` |
 | `/api/users/**` | `identity-service` | `http://identity-service:8081/api/users/**` |
-| `/api/drivers/**` | `driver-service` | `http://driver-service:8082/api/drivers/**` |
+| `/api/drivers/*`, `/api/drivers/*/status`, `/api/drivers/*/location` | `driver-service` | `http://driver-service:8082/api/drivers/...` |
 | `/api/trips/**` | `trip-service` | `http://trip-service:8083/api/trips/**` |
 | `/api/matching/**` | `matching-service` | `http://matching-service:8084/api/matching/**` |
 | `/api/pricing/**` | `pricing-service` | `http://pricing-service:8085/api/pricing/**` |
 | `/api/payments/**` | `payment-service` | `http://payment-service:8086/api/payments/**` |
+| `/api/notifications/**` | `notification-service` | `http://notification-service:8087/api/notifications/**` |
 | `/actuator/health` | `api-gateway` | (Local healthcheck) |
 
 > **Quy tắc giao tiếp:**  
 > - External Client → API Gateway (`localhost:8080`).  
-> - Service → Service nội bộ: Gọi trực tiếp qua Docker DNS (ví dụ: `http://driver-service:8082`), **không** gọi qua Gateway và **không** gọi qua localhost.
+> - Service → Service nội bộ: Gọi trực tiếp qua Docker DNS (ví dụ: `http://driver-service:8082`), **không** gọi qua Gateway và **không** gọi qua localhost.  
+> - Gateway **không** route `/internal/**` và `/api/drivers/{id}/reserve` (trả `404`); hai nhóm này chỉ dành cho service gọi nội bộ.
 
 ---
 
