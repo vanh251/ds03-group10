@@ -980,12 +980,14 @@ All client requests enter via `http://localhost:8080`.
 |---|---|---|
 | `/api/auth/**` | identity-service | `http://identity-service:8081/api/auth/**` |
 | `/api/users/**` | identity-service | `http://identity-service:8081/api/users/**` |
-| `/api/drivers/**` | driver-service | `http://driver-service:8082/api/drivers/**` |
+| `/api/drivers/*`, `/api/drivers/*/status`, `/api/drivers/*/location` | driver-service | `http://driver-service:8082/api/drivers/...` |
 | `/api/trips/**` | trip-service | `http://trip-service:8083/api/trips/**` |
 | `/api/matching/**` | matching-service | `http://matching-service:8084/api/matching/**` |
 | `/api/pricing/**` | pricing-service | `http://pricing-service:8085/api/pricing/**` |
 | `/api/payments/**` | payment-service | `http://payment-service:8086/api/payments/**` |
+| `/api/notifications/**` | notification-service | `http://notification-service:8087/api/notifications/**` |
 | `/actuator/health` | api-gateway | (local) |
 
 > No `lb://` scheme is used. Service discovery is via Docker DNS only.
 > `/internal/**` (service-to-service APIs) is intentionally **not** routed by the gateway.
+> `POST`/`DELETE /api/drivers/{id}/reserve` is **not** routed either (gateway returns `404`): only Matching Service calls it, directly at `http://driver-service:8082`.
