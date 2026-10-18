@@ -10,11 +10,15 @@ spring:
     consumer:
       group-id: notification-service-group
       auto-offset-reset: earliest
+      enable-auto-commit: false
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    # The producer only sends failed records to <topic>.DLQ
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
+    listener:
+      ack-mode: manual_immediate
 
 management:
   endpoints:

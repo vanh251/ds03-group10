@@ -3,13 +3,17 @@ package com.example.paymentservice.service;
 import com.example.paymentservice.dto.request.PaymentChargeRequest;
 import com.example.paymentservice.dto.response.PaymentResponse;
 
+import java.math.BigDecimal;
+import java.util.UUID;
+
 public interface PaymentService {
 
-    PaymentResponse charge(String tripId, PaymentChargeRequest request, String idempotencyKeyHeader, String correlationId);
+    PaymentResponse charge(UUID tripId, PaymentChargeRequest request, String idempotencyKeyHeader, String correlationId);
 
-    PaymentResponse getPaymentByTripId(String tripId);
+    PaymentResponse getPaymentByTripId(UUID tripId);
 
-    PaymentResponse refund(String tripId, String correlationId);
+    PaymentResponse refund(UUID tripId, String correlationId);
 
-    void processTripCompleted(String eventId, String tripId, String passengerId, Double finalFare, String currency, String correlationId);
+    void processTripCompleted(String eventId, UUID tripId, UUID passengerId, BigDecimal finalFare,
+                              String currency, String correlationId);
 }

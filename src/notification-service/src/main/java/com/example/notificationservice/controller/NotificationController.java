@@ -1,10 +1,13 @@
 package com.example.notificationservice.controller;
 
+import com.example.notificationservice.dto.ErrorResponse;
 import com.example.notificationservice.dto.NotificationDto;
 import com.example.notificationservice.dto.SendNotificationRequest;
 import com.example.notificationservice.service.NotificationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -62,8 +65,10 @@ public class NotificationController {
 
     @Operation(summary = "Send notification", description = "Manually dispatches a push notification to a driver or passenger")
     @ApiResponses({
-            @ApiResponse(responseCode = "201", description = "Notification dispatched successfully"),
-            @ApiResponse(responseCode = "400", description = "Invalid notification payload")
+            @ApiResponse(responseCode = "201", description = "Notification dispatched successfully",
+                    content = @Content(schema = @Schema(implementation = NotificationDto.class))),
+            @ApiResponse(responseCode = "400", description = "Invalid notification payload",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
     @PostMapping("/send")
     public ResponseEntity<NotificationDto> sendNotification(

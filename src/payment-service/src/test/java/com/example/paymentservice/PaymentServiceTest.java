@@ -2,34 +2,46 @@ package com.example.paymentservice;
 
 import com.example.paymentservice.dto.request.PaymentChargeRequest;
 import com.example.paymentservice.dto.response.PaymentResponse;
+import com.example.paymentservice.entity.LedgerEntry;
+import com.example.paymentservice.entity.LedgerEntryType;
 import com.example.paymentservice.entity.Payment;
 import com.example.paymentservice.entity.PaymentStatus;
 import com.example.paymentservice.exception.BusinessException;
 import com.example.paymentservice.exception.ConflictException;
+import com.example.paymentservice.exception.PaymentDeclinedException;
 import com.example.paymentservice.exception.ResourceNotFoundException;
 import com.example.paymentservice.kafka.producer.PaymentEventProducer;
-import com.example.paymentservice.repository.OutboxEventRepository;
+import com.example.paymentservice.repository.LedgerEntryRepository;
 import com.example.paymentservice.repository.PaymentRepository;
 import com.example.paymentservice.repository.ProcessedEventRepository;
+import com.example.paymentservice.service.PaymentGatewaySimulator;
 import com.example.paymentservice.service.PaymentService;
 import com.example.paymentservice.service.impl.PaymentServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import tools.jackson.databind.json.JsonMapper;
+import org.springframework.http.HttpStatus;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class PaymentServiceTest {
+
+    private static final UUID TRIP_ID = UUID.fromString("550e8400-e29b-41d4-a716-446655440000");
+    private static final UUID PASSENGER_ID = UUID.fromString("550e8400-e29b-41d4-a716-446655440001");
+    private static final BigDecimal AMOUNT = new BigDecimal("36500");
 
     @Mock
     private PaymentRepository paymentRepository;
@@ -38,156 +50,192 @@ class PaymentServiceTest {
     private ProcessedEventRepository processedEventRepository;
 
     @Mock
-    private OutboxEventRepository outboxEventRepository;
+    private LedgerEntryRepository ledgerEntryRepository;
 
     @Mock
     private PaymentEventProducer paymentEventProducer;
+
+    @Mock
+    private PaymentGatewaySimulator paymentGatewaySimulator;
 
     private PaymentService paymentService;
 
     @BeforeEach
     void setUp() {
-        paymentService = new PaymentServiceImpl(
-                paymentRepository,
-                processedEventRepository,
-                outboxEventRepository,
-                paymentEventProducer,
-                new JsonMapper()
-        );
+        paymentService = new PaymentServiceImpl(paymentRepository, processedEventRepository,
+                ledgerEntryRepository, paymentEventProducer, paymentGatewaySimulator);
+    }
+
+    private PaymentChargeRequest chargeRequest(String idempotencyKey) {
+        return PaymentChargeRequest.builder()
+                .passengerId(PASSENGER_ID)
+                .amount(AMOUNT)
+                .currency("VND")
+                .idempotencyKey(idempotencyKey)
+                .build();
+    }
+
+    private Payment existingPayment(PaymentStatus status, BigDecimal amount) {
+        return Payment.builder()
+                .paymentId(UUID.randomUUID())
+                .tripId(TRIP_ID)
+                .passengerId(PASSENGER_ID)
+                .amount(amount)
+                .currency("VND")
+                .status(status)
+                .failureReason(status == PaymentStatus.FAILED ? PaymentGatewaySimulator.SIMULATED_FAILURE : null)
+                .idempotencyKey("idem-001")
+                .correlationId("corr-001")
+                .createdAt(Instant.now())
+                .capturedAt(status == PaymentStatus.SUCCESS ? Instant.now() : null)
+                .build();
     }
 
     @Test
-    @DisplayName("charge with valid request creates successful payment and publishes event")
+    @DisplayName("charge with valid request captures payment, writes a CAPTURE ledger entry and a PaymentSucceeded outbox event")
     void charge_validRequest_createsSuccessfulPayment() {
-        PaymentChargeRequest request = PaymentChargeRequest.builder()
-                .passengerId("passenger-001")
-                .amount(36500.0)
-                .currency("VND")
-                .idempotencyKey("idem-001")
-                .build();
-
         when(paymentRepository.findByIdempotencyKey("idem-001")).thenReturn(Optional.empty());
-        when(paymentRepository.save(any(Payment.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(paymentRepository.saveAndFlush(any(Payment.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        PaymentResponse response = paymentService.charge("trip-001", request, "idem-001", "corr-001");
+        PaymentResponse response = paymentService.charge(TRIP_ID, chargeRequest(null), "idem-001", "corr-001");
 
-        assertNotNull(response);
-        assertEquals("trip-001", response.getTripId());
+        assertEquals(TRIP_ID, response.getTripId());
         assertEquals(PaymentStatus.SUCCESS, response.getStatus());
-        assertEquals(36500.0, response.getAmount());
-        assertEquals("VND", response.getCurrency());
-        verify(paymentRepository).save(any(Payment.class));
-        verify(paymentEventProducer).publishPaymentSucceeded(any(), eq("trip-001"), eq("passenger-001"), eq(36500.0), eq("VND"), any(), any());
+        assertEquals(0, AMOUNT.compareTo(response.getAmount()));
+        assertNotNull(response.getPaymentId());
+
+        ArgumentCaptor<LedgerEntry> ledger = ArgumentCaptor.forClass(LedgerEntry.class);
+        verify(ledgerEntryRepository).save(ledger.capture());
+        assertEquals(LedgerEntryType.CAPTURE, ledger.getValue().getEntryType());
+        assertEquals(0, AMOUNT.compareTo(ledger.getValue().getAmount()));
+        verify(paymentEventProducer).publishPaymentSucceeded(any(Payment.class), isNull());
+    }
+
+    @Test
+    @DisplayName("charge without header or body idempotency key is rejected with 400")
+    void charge_missingIdempotencyKey_throwsBadRequest() {
+        BusinessException ex = assertThrows(BusinessException.class, () ->
+                paymentService.charge(TRIP_ID, chargeRequest(null), null, "corr-001"));
+
+        assertEquals(HttpStatus.BAD_REQUEST, ex.getStatus());
+        assertEquals("IDEMPOTENCY_KEY_REQUIRED", ex.getCode());
+        verify(paymentRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    @DisplayName("charge falls back to the body idempotency key when the header is absent")
+    void charge_bodyIdempotencyKey_usesBodyKey() {
+        when(paymentRepository.findByIdempotencyKey("body-key")).thenReturn(Optional.empty());
+        when(paymentRepository.saveAndFlush(any(Payment.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        paymentService.charge(TRIP_ID, chargeRequest("body-key"), null, "corr-001");
+
+        ArgumentCaptor<Payment> saved = ArgumentCaptor.forClass(Payment.class);
+        verify(paymentRepository).saveAndFlush(saved.capture());
+        assertEquals("body-key", saved.getValue().getIdempotencyKey());
     }
 
     @Test
     @DisplayName("charge with duplicate idempotency key returns existing payment without re-charging")
     void charge_duplicateIdempotencyKey_returnsExistingPayment() {
-        Payment existingPayment = Payment.builder()
-                .paymentId("pay-existing")
-                .tripId("trip-001")
-                .passengerId("passenger-001")
-                .amount(36500.0)
-                .currency("VND")
-                .status(PaymentStatus.SUCCESS)
-                .idempotencyKey("idem-001")
-                .createdAt(Instant.now())
-                .capturedAt(Instant.now())
-                .build();
+        Payment existing = existingPayment(PaymentStatus.SUCCESS, AMOUNT);
+        when(paymentRepository.findByIdempotencyKey("idem-001")).thenReturn(Optional.of(existing));
 
-        PaymentChargeRequest request = PaymentChargeRequest.builder()
-                .passengerId("passenger-001")
-                .amount(36500.0)
-                .currency("VND")
-                .idempotencyKey("idem-001")
-                .build();
+        PaymentResponse response = paymentService.charge(TRIP_ID, chargeRequest(null), "idem-001", "corr-001");
 
-        when(paymentRepository.findByIdempotencyKey("idem-001")).thenReturn(Optional.of(existingPayment));
-
-        PaymentResponse response = paymentService.charge("trip-001", request, "idem-001", "corr-001");
-
-        assertNotNull(response);
-        assertEquals("pay-existing", response.getPaymentId());
-        assertEquals(PaymentStatus.SUCCESS, response.getStatus());
-        verify(paymentRepository, never()).save(any(Payment.class));
+        assertEquals(existing.getPaymentId(), response.getPaymentId());
+        verify(paymentRepository, never()).saveAndFlush(any());
+        verifyNoInteractions(paymentEventProducer, ledgerEntryRepository);
     }
 
     @Test
-    @DisplayName("charge with duplicate key but different parameters throws ConflictException")
+    @DisplayName("charge replaying the key of a declined payment returns 402 again without re-charging")
+    void charge_duplicateKeyOfFailedPayment_throwsPaymentDeclined() {
+        when(paymentRepository.findByIdempotencyKey("idem-001"))
+                .thenReturn(Optional.of(existingPayment(PaymentStatus.FAILED, AMOUNT)));
+
+        assertThrows(PaymentDeclinedException.class, () ->
+                paymentService.charge(TRIP_ID, chargeRequest(null), "idem-001", "corr-001"));
+
+        verify(paymentRepository, never()).saveAndFlush(any());
+        verifyNoInteractions(paymentEventProducer);
+    }
+
+    @Test
+    @DisplayName("charge with duplicate key but different amount throws ConflictException")
     void charge_duplicateKeyDifferentParams_throwsConflictException() {
-        Payment existingPayment = Payment.builder()
-                .paymentId("pay-existing")
-                .tripId("trip-001")
-                .passengerId("passenger-001")
-                .amount(50000.0)
-                .idempotencyKey("idem-001")
-                .build();
+        when(paymentRepository.findByIdempotencyKey("idem-001"))
+                .thenReturn(Optional.of(existingPayment(PaymentStatus.SUCCESS, new BigDecimal("50000"))));
 
-        PaymentChargeRequest request = PaymentChargeRequest.builder()
-                .passengerId("passenger-001")
-                .amount(36500.0)
-                .currency("VND")
-                .idempotencyKey("idem-001")
-                .build();
-
-        when(paymentRepository.findByIdempotencyKey("idem-001")).thenReturn(Optional.of(existingPayment));
-
-        assertThrows(ConflictException.class, () ->
-                paymentService.charge("trip-001", request, "idem-001", "corr-001"));
+        ConflictException ex = assertThrows(ConflictException.class, () ->
+                paymentService.charge(TRIP_ID, chargeRequest(null), "idem-001", "corr-001"));
+        assertEquals("IDEMPOTENCY_CONFLICT", ex.getCode());
     }
 
     @Test
-    @DisplayName("charge with simulated failure saves failed payment and throws BusinessException")
-    void charge_simulatedFailure_savesFailedPaymentAndThrowsException() {
-        PaymentChargeRequest request = PaymentChargeRequest.builder()
-                .passengerId("passenger-001")
-                .amount(36500.0)
-                .currency("VND")
-                .idempotencyKey("idem-fail-001")
-                .simulateFailure(true)
-                .build();
+    @DisplayName("charge with a new key for a trip that is already paid throws ConflictException")
+    void charge_tripAlreadyPaid_throwsConflictException() {
+        when(paymentRepository.findByIdempotencyKey("idem-002")).thenReturn(Optional.empty());
+        when(paymentRepository.existsByTripIdAndStatus(TRIP_ID, PaymentStatus.SUCCESS)).thenReturn(true);
 
-        when(paymentRepository.findByIdempotencyKey("idem-fail-001")).thenReturn(Optional.empty());
-        when(paymentRepository.save(any(Payment.class))).thenAnswer(inv -> inv.getArgument(0));
+        ConflictException ex = assertThrows(ConflictException.class, () ->
+                paymentService.charge(TRIP_ID, chargeRequest(null), "idem-002", "corr-001"));
 
-        assertThrows(BusinessException.class, () ->
-                paymentService.charge("trip-001", request, "idem-fail-001", "corr-001"));
-
-        verify(paymentRepository).save(any(Payment.class));
-        verify(paymentEventProducer).publishPaymentFailed(any(), eq("trip-001"), eq("passenger-001"), eq(36500.0), eq("VND"), any(), any(), any());
+        assertEquals("PAYMENT_ALREADY_CAPTURED", ex.getCode());
+        verify(paymentRepository, never()).saveAndFlush(any());
     }
 
     @Test
-    @DisplayName("refund with existing successful payment updates status to REFUNDED")
+    @DisplayName("charge declined by the gateway saves a FAILED payment, a PaymentFailed event and throws 402")
+    void charge_declined_savesFailedPaymentAndThrowsPaymentDeclined() {
+        when(paymentRepository.findByIdempotencyKey("idem-001")).thenReturn(Optional.empty());
+        when(paymentGatewaySimulator.isDeclined()).thenReturn(true);
+        when(paymentRepository.saveAndFlush(any(Payment.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        PaymentDeclinedException ex = assertThrows(PaymentDeclinedException.class, () ->
+                paymentService.charge(TRIP_ID, chargeRequest(null), "idem-001", "corr-001"));
+
+        assertEquals(HttpStatus.PAYMENT_REQUIRED, ex.getStatus());
+        ArgumentCaptor<Payment> saved = ArgumentCaptor.forClass(Payment.class);
+        verify(paymentRepository).saveAndFlush(saved.capture());
+        assertEquals(PaymentStatus.FAILED, saved.getValue().getStatus());
+        verify(paymentEventProducer).publishPaymentFailed(any(Payment.class), anyInt(), isNull());
+        verifyNoInteractions(ledgerEntryRepository);
+    }
+
+    @Test
+    @DisplayName("refund of a successful payment sets REFUNDED and writes a negative REFUND ledger entry")
     void refund_successfulPayment_updatesStatusToRefunded() {
-        Payment payment = Payment.builder()
-                .paymentId("pay-001")
-                .tripId("trip-001")
-                .passengerId("passenger-001")
-                .amount(36500.0)
-                .status(PaymentStatus.SUCCESS)
-                .createdAt(Instant.now())
-                .capturedAt(Instant.now())
-                .build();
-
-        when(paymentRepository.findTopByTripIdOrderByCreatedAtDesc("trip-001")).thenReturn(Optional.of(payment));
+        Payment payment = existingPayment(PaymentStatus.SUCCESS, AMOUNT);
+        when(paymentRepository.findTopByTripIdOrderByCreatedAtDesc(TRIP_ID)).thenReturn(Optional.of(payment));
         when(paymentRepository.save(any(Payment.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        PaymentResponse response = paymentService.refund("trip-001", "corr-001");
+        PaymentResponse response = paymentService.refund(TRIP_ID, "corr-001");
 
-        assertNotNull(response);
         assertEquals(PaymentStatus.REFUNDED, response.getStatus());
         assertNotNull(response.getRefundedAt());
-        verify(paymentRepository).save(payment);
+        ArgumentCaptor<LedgerEntry> ledger = ArgumentCaptor.forClass(LedgerEntry.class);
+        verify(ledgerEntryRepository).save(ledger.capture());
+        assertEquals(LedgerEntryType.REFUND, ledger.getValue().getEntryType());
+        assertEquals(0, AMOUNT.negate().compareTo(ledger.getValue().getAmount()));
+    }
+
+    @Test
+    @DisplayName("refund of a failed payment throws ConflictException")
+    void refund_failedPayment_throwsConflictException() {
+        when(paymentRepository.findTopByTripIdOrderByCreatedAtDesc(TRIP_ID))
+                .thenReturn(Optional.of(existingPayment(PaymentStatus.FAILED, AMOUNT)));
+
+        ConflictException ex = assertThrows(ConflictException.class, () -> paymentService.refund(TRIP_ID, "corr-001"));
+        assertEquals("INVALID_REFUND_STATE", ex.getCode());
     }
 
     @Test
     @DisplayName("refund on non-existing trip payment throws ResourceNotFoundException")
     void refund_nonExistingPayment_throwsNotFound() {
-        when(paymentRepository.findTopByTripIdOrderByCreatedAtDesc("trip-unknown")).thenReturn(Optional.empty());
+        when(paymentRepository.findTopByTripIdOrderByCreatedAtDesc(TRIP_ID)).thenReturn(Optional.empty());
 
-        assertThrows(ResourceNotFoundException.class, () ->
-                paymentService.refund("trip-unknown", "corr-001"));
+        assertThrows(ResourceNotFoundException.class, () -> paymentService.refund(TRIP_ID, "corr-001"));
     }
 
     @Test
@@ -195,22 +243,55 @@ class PaymentServiceTest {
     void processTripCompleted_duplicateEvent_doesNotProcessTwice() {
         when(processedEventRepository.existsByEventId("evt-dup")).thenReturn(true);
 
-        paymentService.processTripCompleted("evt-dup", "trip-001", "passenger-001", 36500.0, "VND", "corr-001");
+        paymentService.processTripCompleted("evt-dup", TRIP_ID, PASSENGER_ID, AMOUNT, "VND", "corr-001");
 
-        verify(paymentRepository, never()).save(any(Payment.class));
-        verify(paymentEventProducer, never()).publishPaymentSucceeded(any(), any(), any(), any(), any(), any(), any());
+        verify(paymentRepository, never()).saveAndFlush(any());
+        verifyNoInteractions(paymentEventProducer);
     }
 
     @Test
-    @DisplayName("processTripCompleted with new event processes charge and marks processed")
+    @DisplayName("processTripCompleted with new event charges, records the event and uses its eventId as causationId")
     void processTripCompleted_newEvent_processesCharge() {
         when(processedEventRepository.existsByEventId("evt-new")).thenReturn(false);
-        when(paymentRepository.save(any(Payment.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(paymentRepository.findByIdempotencyKey("trip-" + TRIP_ID + "-completed")).thenReturn(Optional.empty());
+        when(paymentRepository.saveAndFlush(any(Payment.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        paymentService.processTripCompleted("evt-new", "trip-001", "passenger-001", 36500.0, "VND", "corr-001");
+        paymentService.processTripCompleted("evt-new", TRIP_ID, PASSENGER_ID, AMOUNT, "VND", "corr-001");
 
-        verify(paymentRepository).save(any(Payment.class));
+        ArgumentCaptor<Payment> saved = ArgumentCaptor.forClass(Payment.class);
+        verify(paymentRepository).saveAndFlush(saved.capture());
+        assertEquals(PASSENGER_ID, saved.getValue().getPassengerId());
+        assertEquals(PaymentStatus.SUCCESS, saved.getValue().getStatus());
         verify(processedEventRepository).save(any());
-        verify(paymentEventProducer).publishPaymentSucceeded(any(), eq("trip-001"), eq("passenger-001"), eq(36500.0), eq("VND"), any(), eq("evt-new"));
+        verify(paymentEventProducer).publishPaymentSucceeded(any(Payment.class), eq("evt-new"));
+    }
+
+    @Test
+    @DisplayName("processTripCompleted re-published with a new eventId does not charge the trip twice")
+    void processTripCompleted_tripAlreadyCharged_doesNotChargeTwice() {
+        when(processedEventRepository.existsByEventId("evt-replay")).thenReturn(false);
+        when(paymentRepository.findByIdempotencyKey("trip-" + TRIP_ID + "-completed"))
+                .thenReturn(Optional.of(existingPayment(PaymentStatus.SUCCESS, AMOUNT)));
+
+        paymentService.processTripCompleted("evt-replay", TRIP_ID, PASSENGER_ID, AMOUNT, "VND", "corr-001");
+
+        verify(paymentRepository, never()).saveAndFlush(any());
+        verifyNoInteractions(paymentEventProducer);
+        verify(processedEventRepository).save(any());
+    }
+
+    @Test
+    @DisplayName("processTripCompleted declined by the gateway publishes PaymentFailed instead of throwing")
+    void processTripCompleted_declined_publishesPaymentFailed() {
+        when(processedEventRepository.existsByEventId("evt-fail")).thenReturn(false);
+        when(paymentRepository.findByIdempotencyKey("trip-" + TRIP_ID + "-completed")).thenReturn(Optional.empty());
+        when(paymentGatewaySimulator.isDeclined()).thenReturn(true);
+        when(paymentRepository.saveAndFlush(any(Payment.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        paymentService.processTripCompleted("evt-fail", TRIP_ID, PASSENGER_ID, AMOUNT, "VND", "corr-001");
+
+        verify(paymentEventProducer).publishPaymentFailed(any(Payment.class), eq(0), eq("evt-fail"));
+        verify(paymentEventProducer, never()).publishPaymentSucceeded(any(), any());
+        verify(processedEventRepository).save(any());
     }
 }

@@ -21,11 +21,23 @@ spring:
     consumer:
       group-id: payment-service-group
       auto-offset-reset: earliest
+      enable-auto-commit: false
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
+    listener:
+      ack-mode: manual_immediate
+
+payment:
+  simulation:
+    # none | always | rate (docs/SRS.md §5.6 simulate payment failure)
+    failure-mode: ${PAYMENT_FAILURE_MODE:none}
+    failure-rate: ${PAYMENT_FAILURE_RATE:0.0}
+  outbox:
+    poll-interval-ms: ${PAYMENT_OUTBOX_POLL_INTERVAL_MS:1000}
+    send-timeout-ms: ${PAYMENT_OUTBOX_SEND_TIMEOUT_MS:5000}
 
 management:
   endpoints:
