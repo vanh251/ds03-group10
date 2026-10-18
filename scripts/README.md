@@ -119,3 +119,13 @@ After release validation:
 8. Prefer small PRs.
 9. `git-sync.ps1` uses `--force-with-lease`, never plain `--force`.
 10. `develop` should remain buildable and testable.
+
+## Test scripts (bash, run from the repository root)
+
+| Script | Purpose |
+|---|---|
+| `scripts/e2e-happy-path.sh` | Runs the W3 Happy Path through the gateway (register → trip → matching → payment → notification) and stops at the first broken step |
+| `scripts/kafka/send-event.sh <EventType>` | Publishes a fixture of `docs/test-data/events` to Kafka to test a consumer alone |
+| `scripts/kafka/tail-dlq.sh [topic]` | Shows rejected events in the DLQ topics, with the consumer group that rejected them |
+
+See `scripts/kafka/README.md` for examples.
