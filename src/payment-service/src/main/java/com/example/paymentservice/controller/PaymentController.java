@@ -18,6 +18,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.UUID;
+
 @RestController
 @RequestMapping("/api/payments")
 @RequiredArgsConstructor
@@ -27,22 +29,27 @@ public class PaymentController {
 
     private final PaymentService paymentService;
 
-    @Operation(summary = "Charge payment", description = "Processes a payment charge for a specified trip")
+    @Operation(summary = "Charge payment",
+            description = "Charges the passenger for a trip. Repeating the call with the same idempotency key "
+                    + "returns the first result instead of charging again.")
     @ApiResponses({
             @ApiResponse(responseCode = "201", description = "Payment charged successfully",
                     content = @Content(schema = @Schema(implementation = PaymentResponse.class))),
-            @ApiResponse(responseCode = "400", description = "Invalid request payload or simulated failure",
+            @ApiResponse(responseCode = "400", description = "Invalid request payload, trip ID or missing idempotency key",
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
-            @ApiResponse(responseCode = "409", description = "Payment conflict or duplicate idempotency key",
+            @ApiResponse(responseCode = "402", description = "Simulated payment failure",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "409", description = "Idempotency key reused for a different charge, or trip already paid",
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
     @PostMapping("/{tripId}/charge")
     public ResponseEntity<PaymentResponse> chargePayment(
             @Parameter(description = "ID of the trip being charged", example = "550e8400-e29b-41d4-a716-446655440000")
-            @PathVariable String tripId,
-            @Parameter(description = "Optional idempotency key to prevent duplicate charges")
+            @PathVariable UUID tripId,
+            @Parameter(description = "Idempotency key preventing duplicate charges (required unless sent in the body)",
+                    example = "trip-001-charge-001")
             @RequestHeader(value = "X-Idempotency-Key", required = false) String idempotencyKeyHeader,
-            @Parameter(description = "Optional correlation ID for distributed tracing")
+            @Parameter(description = "Correlation ID for distributed tracing", example = "f47ac10b-58cc-4372-a567-0e02b2c3d479")
             @RequestHeader(value = "X-Correlation-ID", required = false) String correlationId,
             @Valid @RequestBody PaymentChargeRequest request) {
 
@@ -50,39 +57,42 @@ public class PaymentController {
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
-    @Operation(summary = "Get payment details", description = "Retrieves payment record for a given trip ID")
+    @Operation(summary = "Get payment details", description = "Retrieves the latest payment record of a trip")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Payment found",
                     content = @Content(schema = @Schema(implementation = PaymentResponse.class))),
+            @ApiResponse(responseCode = "400", description = "Trip ID is not a UUID",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @ApiResponse(responseCode = "404", description = "Payment not found for given trip",
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
     @GetMapping("/{tripId}")
     public ResponseEntity<PaymentResponse> getPayment(
             @Parameter(description = "ID of the trip", example = "550e8400-e29b-41d4-a716-446655440000")
-            @PathVariable String tripId) {
+            @PathVariable UUID tripId) {
         PaymentResponse response = paymentService.getPaymentByTripId(tripId);
         return ResponseEntity.ok(response);
     }
 
-    @Operation(summary = "Refund payment", description = "Refunds a completed payment for a specified trip")
+    @Operation(summary = "Refund payment", description = "Refunds the successful payment of a trip (compensating action)")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Payment refunded successfully",
                     content = @Content(schema = @Schema(implementation = PaymentResponse.class))),
-            @ApiResponse(responseCode = "400", description = "Payment cannot be refunded in its current state",
+            @ApiResponse(responseCode = "400", description = "Trip ID is not a UUID",
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @ApiResponse(responseCode = "404", description = "Payment not found for given trip",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "409", description = "Payment cannot be refunded in its current state, or was changed concurrently",
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
     @PostMapping("/{tripId}/refund")
     public ResponseEntity<PaymentResponse> refundPayment(
             @Parameter(description = "ID of the trip to refund", example = "550e8400-e29b-41d4-a716-446655440000")
-            @PathVariable String tripId,
-            @Parameter(description = "Optional correlation ID for distributed tracing")
+            @PathVariable UUID tripId,
+            @Parameter(description = "Correlation ID for distributed tracing", example = "f47ac10b-58cc-4372-a567-0e02b2c3d479")
             @RequestHeader(value = "X-Correlation-ID", required = false) String correlationId) {
 
         PaymentResponse response = paymentService.refund(tripId, correlationId);
         return ResponseEntity.ok(response);
     }
 }
-

@@ -1,42 +1,37 @@
 package com.example.paymentservice.exception;
 
+import com.example.paymentservice.config.CorrelationIdFilter;
 import com.example.paymentservice.dto.response.ErrorResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.servlet.NoHandlerFoundException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.time.Instant;
-import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
-    private static final String CORRELATION_ID_HEADER = "X-Correlation-ID";
-
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ErrorResponse> handleBusinessException(BusinessException ex, HttpServletRequest request) {
         String correlationId = resolveCorrelationId(request);
         log.warn("Business exception: status={}, code={}, message={}, correlationId={}",
                 ex.getStatus(), ex.getCode(), ex.getMessage(), correlationId);
-
-        ErrorResponse response = ErrorResponse.builder()
-                .timestamp(Instant.now())
-                .status(ex.getStatus().value())
-                .error(ex.getStatus().getReasonPhrase())
-                .message(ex.getMessage())
-                .path(request.getRequestURI())
-                .correlationId(correlationId)
-                .code(ex.getCode())
-                .build();
-
-        return ResponseEntity.status(ex.getStatus()).body(response);
+        return buildResponse(ex.getStatus(), ex.getMessage(), ex.getCode(), request, correlationId);
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -45,68 +40,82 @@ public class GlobalExceptionHandler {
         String details = ex.getBindingResult().getFieldErrors().stream()
                 .map(FieldError::getDefaultMessage)
                 .collect(Collectors.joining("; "));
-
         log.warn("Validation error on path {}: {}, correlationId={}", request.getRequestURI(), details, correlationId);
-
-        ErrorResponse response = ErrorResponse.builder()
-                .timestamp(Instant.now())
-                .status(HttpStatus.BAD_REQUEST.value())
-                .error(HttpStatus.BAD_REQUEST.getReasonPhrase())
-                .message(details)
-                .path(request.getRequestURI())
-                .correlationId(correlationId)
-                .code("VALIDATION_ERROR")
-                .build();
-
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+        return buildResponse(HttpStatus.BAD_REQUEST, details, "VALIDATION_ERROR", request, correlationId);
     }
 
-    @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<ErrorResponse> handleIllegalArgumentException(IllegalArgumentException ex, HttpServletRequest request) {
+    // Malformed JSON or a value of the wrong type (e.g. passengerId "abc") fails before bean validation runs
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ErrorResponse> handleMessageNotReadable(HttpMessageNotReadableException ex, HttpServletRequest request) {
         String correlationId = resolveCorrelationId(request);
-        log.warn("Illegal argument on path {}: {}, correlationId={}", request.getRequestURI(), ex.getMessage(), correlationId);
+        log.warn("Unreadable request body on path {}, correlationId={}", request.getRequestURI(), correlationId);
+        return buildResponse(HttpStatus.BAD_REQUEST, "Request body is malformed or contains invalid values",
+                "MALFORMED_REQUEST", request, correlationId);
+    }
 
-        ErrorResponse response = ErrorResponse.builder()
-                .timestamp(Instant.now())
-                .status(HttpStatus.BAD_REQUEST.value())
-                .error(HttpStatus.BAD_REQUEST.getReasonPhrase())
-                .message(ex.getMessage())
-                .path(request.getRequestURI())
-                .correlationId(correlationId)
-                .code("INVALID_ARGUMENT")
-                .build();
+    // e.g. /api/payments/abc where tripId must be a UUID
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ErrorResponse> handleTypeMismatch(MethodArgumentTypeMismatchException ex, HttpServletRequest request) {
+        String correlationId = resolveCorrelationId(request);
+        log.warn("Invalid value for parameter '{}' on path {}, correlationId={}", ex.getName(), request.getRequestURI(), correlationId);
+        return buildResponse(HttpStatus.BAD_REQUEST, "Invalid value for parameter '" + ex.getName() + "'",
+                "INVALID_PARAMETER", request, correlationId);
+    }
 
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+    // The @Version check failed: the payment was changed concurrently (e.g. two refunds at once)
+    @ExceptionHandler(OptimisticLockingFailureException.class)
+    public ResponseEntity<ErrorResponse> handleOptimisticLock(OptimisticLockingFailureException ex, HttpServletRequest request) {
+        String correlationId = resolveCorrelationId(request);
+        log.warn("Concurrent update on path {}, correlationId={}", request.getRequestURI(), correlationId);
+        return buildResponse(HttpStatus.CONFLICT, "The payment was changed by another request, please retry",
+                "CONCURRENT_UPDATE", request, correlationId);
+    }
+
+    // Two concurrent charges with the same idempotency key: the unique index rejects the second one
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ErrorResponse> handleDataIntegrityViolation(DataIntegrityViolationException ex, HttpServletRequest request) {
+        String correlationId = resolveCorrelationId(request);
+        log.warn("Data integrity violation on path {}, correlationId={}", request.getRequestURI(), correlationId);
+        return buildResponse(HttpStatus.CONFLICT, "A payment with this idempotency key is already being processed",
+                "IDEMPOTENCY_CONFLICT", request, correlationId);
+    }
+
+    // Unknown path (404), wrong method (405) or content type (415) keep their status instead of falling into the 500 handler
+    @ExceptionHandler({NoHandlerFoundException.class, NoResourceFoundException.class,
+            HttpRequestMethodNotSupportedException.class, HttpMediaTypeNotSupportedException.class})
+    public ResponseEntity<ErrorResponse> handleSpringMvcError(Exception ex, HttpServletRequest request) {
+        String correlationId = resolveCorrelationId(request);
+        HttpStatus status = HttpStatus.valueOf(((org.springframework.web.ErrorResponse) ex).getStatusCode().value());
+        log.warn("{} {} -> {}, correlationId={}", request.getMethod(), request.getRequestURI(), status.value(), correlationId);
+        return buildResponse(status, status.getReasonPhrase() + ": " + request.getMethod() + " " + request.getRequestURI(),
+                status.name(), request, correlationId);
     }
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGenericException(Exception ex, HttpServletRequest request) {
         String correlationId = resolveCorrelationId(request);
         log.error("Internal server error on path {}: correlationId={}", request.getRequestURI(), correlationId, ex);
-
-        ErrorResponse response = ErrorResponse.builder()
-                .timestamp(Instant.now())
-                .status(HttpStatus.INTERNAL_SERVER_ERROR.value())
-                .error(HttpStatus.INTERNAL_SERVER_ERROR.getReasonPhrase())
-                .message("An unexpected error occurred")
-                .path(request.getRequestURI())
-                .correlationId(correlationId)
-                .code("INTERNAL_SERVER_ERROR")
-                .build();
-
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+        return buildResponse(HttpStatus.INTERNAL_SERVER_ERROR, "An unexpected error occurred",
+                "INTERNAL_SERVER_ERROR", request, correlationId);
     }
 
+    private ResponseEntity<ErrorResponse> buildResponse(HttpStatus status, String message, String code,
+                                                        HttpServletRequest request, String correlationId) {
+        ErrorResponse response = ErrorResponse.builder()
+                .timestamp(Instant.now())
+                .status(status.value())
+                .error(status.getReasonPhrase())
+                .message(message)
+                .path(request.getRequestURI())
+                .correlationId(correlationId)
+                .code(code)
+                .build();
+        return ResponseEntity.status(status).body(response);
+    }
+
+    // Returns null when the caller sent no X-Correlation-ID; the field is then omitted from the error body
     private String resolveCorrelationId(HttpServletRequest request) {
-        String correlationId = request.getHeader(CORRELATION_ID_HEADER);
-        if (correlationId == null || correlationId.isBlank()) {
-            Object attr = request.getAttribute(CORRELATION_ID_HEADER);
-            if (attr != null) {
-                correlationId = attr.toString();
-            } else {
-                correlationId = UUID.randomUUID().toString();
-            }
-        }
-        return correlationId;
+        Object attr = request.getAttribute(CorrelationIdFilter.CORRELATION_ID_HEADER);
+        return attr != null ? attr.toString() : null;
     }
 }

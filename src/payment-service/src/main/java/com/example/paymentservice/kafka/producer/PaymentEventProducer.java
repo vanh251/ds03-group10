@@ -1,17 +1,24 @@
 package com.example.paymentservice.kafka.producer;
 
+import com.example.paymentservice.entity.OutboxEvent;
+import com.example.paymentservice.entity.Payment;
 import com.example.paymentservice.kafka.event.EventEnvelope;
 import com.example.paymentservice.kafka.event.PaymentFailedPayload;
 import com.example.paymentservice.kafka.event.PaymentSucceededPayload;
+import com.example.paymentservice.repository.OutboxEventRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.ObjectMapper;
 
 import java.time.Instant;
 import java.util.UUID;
 
+/**
+ * Writes payment events to the outbox_events table (Transactional Outbox, CODING_CONVENTION §24).
+ * Must be called inside the business transaction that changes the payment, so the event is stored
+ * if and only if the payment is; {@link OutboxEventPoller} publishes it to Kafka afterwards.
+ */
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -19,78 +26,65 @@ public class PaymentEventProducer {
 
     public static final String PAYMENT_EVENTS_TOPIC = "payment-events";
     public static final String PRODUCER_NAME = "payment-service";
+    public static final String AGGREGATE_TYPE = "Payment";
+    public static final String PAYMENT_SUCCEEDED = "PaymentSucceeded";
+    public static final String PAYMENT_FAILED = "PaymentFailed";
 
-    private final KafkaTemplate<String, String> kafkaTemplate;
+    private final OutboxEventRepository outboxEventRepository;
     private final ObjectMapper objectMapper;
 
-    public void publishPaymentSucceeded(String paymentId, String tripId, String passengerId,
-                                        Double amount, String currency, String correlationId, String causationId) {
-        String eventId = UUID.randomUUID().toString();
+    public void publishPaymentSucceeded(Payment payment, String causationId) {
         PaymentSucceededPayload payload = PaymentSucceededPayload.builder()
-                .paymentId(paymentId)
-                .tripId(tripId)
-                .passengerId(passengerId)
-                .amount(amount)
-                .currency(currency != null ? currency : "VND")
-                .processedAt(Instant.now())
+                .paymentId(payment.getPaymentId())
+                .tripId(payment.getTripId())
+                .passengerId(payment.getPassengerId())
+                .amount(payment.getAmount())
+                .currency(payment.getCurrency())
+                .processedAt(payment.getCapturedAt())
                 .build();
-
-        EventEnvelope<PaymentSucceededPayload> envelope = EventEnvelope.<PaymentSucceededPayload>builder()
-                .eventId(eventId)
-                .eventType("PaymentSucceeded")
-                .aggregateId(paymentId)
-                .aggregateType("Payment")
-                .producer(PRODUCER_NAME)
-                .correlationId(correlationId)
-                .causationId(causationId)
-                .schemaVersion("1.0")
-                .occurredAt(Instant.now())
-                .payload(payload)
-                .build();
-
-        sendEvent(tripId, envelope);
+        saveToOutbox(PAYMENT_SUCCEEDED, payment, causationId, payload);
     }
 
-    public void publishPaymentFailed(String paymentId, String tripId, String passengerId,
-                                     Double amount, String currency, String reason,
-                                     String correlationId, String causationId) {
-        String eventId = UUID.randomUUID().toString();
+    public void publishPaymentFailed(Payment payment, int retryCount, String causationId) {
         PaymentFailedPayload payload = PaymentFailedPayload.builder()
-                .paymentId(paymentId)
-                .tripId(tripId)
-                .passengerId(passengerId)
-                .amount(amount)
-                .currency(currency != null ? currency : "VND")
-                .reason(reason != null ? reason : "PAYMENT_FAILED")
-                .retryCount(0)
+                .paymentId(payment.getPaymentId())
+                .tripId(payment.getTripId())
+                .passengerId(payment.getPassengerId())
+                .amount(payment.getAmount())
+                .currency(payment.getCurrency())
+                .reason(payment.getFailureReason())
+                .retryCount(retryCount)
                 .failedAt(Instant.now())
                 .build();
+        saveToOutbox(PAYMENT_FAILED, payment, causationId, payload);
+    }
 
-        EventEnvelope<PaymentFailedPayload> envelope = EventEnvelope.<PaymentFailedPayload>builder()
-                .eventId(eventId)
-                .eventType("PaymentFailed")
-                .aggregateId(paymentId)
-                .aggregateType("Payment")
+    private <T> void saveToOutbox(String eventType, Payment payment, String causationId, T payload) {
+        UUID eventId = UUID.randomUUID();
+        EventEnvelope<T> envelope = EventEnvelope.<T>builder()
+                .eventId(eventId.toString())
+                .eventType(eventType)
+                .aggregateId(payment.getPaymentId().toString())
+                .aggregateType(AGGREGATE_TYPE)
                 .producer(PRODUCER_NAME)
-                .correlationId(correlationId)
+                .correlationId(payment.getCorrelationId())
                 .causationId(causationId)
                 .schemaVersion("1.0")
                 .occurredAt(Instant.now())
                 .payload(payload)
                 .build();
 
-        sendEvent(tripId, envelope);
-    }
+        OutboxEvent outboxEvent = OutboxEvent.builder()
+                .eventId(eventId)
+                .aggregateType(AGGREGATE_TYPE)
+                .aggregateId(payment.getPaymentId())
+                .eventType(eventType)
+                .payload(objectMapper.writeValueAsString(envelope))
+                .correlationId(payment.getCorrelationId())
+                .build();
+        outboxEventRepository.save(outboxEvent);
 
-    private <T> void sendEvent(String partitionKey, EventEnvelope<T> envelope) {
-        try {
-            String json = objectMapper.writeValueAsString(envelope);
-            log.info("Publishing event to {}: key={}, eventType={}, eventId={}, correlationId={}",
-                    PAYMENT_EVENTS_TOPIC, partitionKey, envelope.getEventType(), envelope.getEventId(), envelope.getCorrelationId());
-            kafkaTemplate.send(PAYMENT_EVENTS_TOPIC, partitionKey, json);
-        } catch (Exception e) {
-            log.error("Failed to serialize or send Kafka event: eventType={}, key={}",
-                    envelope.getEventType(), partitionKey, e);
-        }
+        log.info("Event stored in outbox: eventType={}, eventId={}, paymentId={}, tripId={}, correlationId={}",
+                eventType, eventId, payment.getPaymentId(), payment.getTripId(), payment.getCorrelationId());
     }
 }

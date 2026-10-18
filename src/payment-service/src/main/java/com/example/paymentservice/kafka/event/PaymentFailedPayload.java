@@ -5,18 +5,20 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.UUID;
 
+// Payload of PaymentFailed (docs/events.md §4.7)
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
 public class PaymentFailedPayload {
-
-    private String paymentId;
-    private String tripId;
-    private String passengerId;
-    private Double amount;
+    private UUID paymentId;
+    private UUID tripId;
+    private UUID passengerId;
+    private BigDecimal amount;
     private String currency;
     private String reason;
     private Integer retryCount;

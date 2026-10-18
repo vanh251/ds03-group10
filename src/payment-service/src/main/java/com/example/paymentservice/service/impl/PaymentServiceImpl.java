@@ -2,25 +2,28 @@ package com.example.paymentservice.service.impl;
 
 import com.example.paymentservice.dto.request.PaymentChargeRequest;
 import com.example.paymentservice.dto.response.PaymentResponse;
-import com.example.paymentservice.entity.OutboxEvent;
+import com.example.paymentservice.entity.LedgerEntry;
+import com.example.paymentservice.entity.LedgerEntryType;
 import com.example.paymentservice.entity.Payment;
 import com.example.paymentservice.entity.PaymentStatus;
 import com.example.paymentservice.entity.ProcessedEvent;
 import com.example.paymentservice.exception.BusinessException;
 import com.example.paymentservice.exception.ConflictException;
+import com.example.paymentservice.exception.PaymentDeclinedException;
 import com.example.paymentservice.exception.ResourceNotFoundException;
 import com.example.paymentservice.kafka.producer.PaymentEventProducer;
-import com.example.paymentservice.repository.OutboxEventRepository;
+import com.example.paymentservice.repository.LedgerEntryRepository;
 import com.example.paymentservice.repository.PaymentRepository;
 import com.example.paymentservice.repository.ProcessedEventRepository;
+import com.example.paymentservice.service.PaymentGatewaySimulator;
 import com.example.paymentservice.service.PaymentService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import tools.jackson.databind.ObjectMapper;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
@@ -30,90 +33,48 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class PaymentServiceImpl implements PaymentService {
 
+    public static final String DEFAULT_CURRENCY = "VND";
+    private static final String TRIP_COMPLETED_EVENT_TYPE = "TripCompleted";
+    private static final String MOCK_PAYMENT_METHOD = "MOCK_CARD";
+    // A simulated decline is final for that attempt; retryCount only counts infrastructure retries
+    private static final int NO_RETRY = 0;
+
     private final PaymentRepository paymentRepository;
     private final ProcessedEventRepository processedEventRepository;
-    private final OutboxEventRepository outboxEventRepository;
+    private final LedgerEntryRepository ledgerEntryRepository;
     private final PaymentEventProducer paymentEventProducer;
-    private final ObjectMapper objectMapper;
+    private final PaymentGatewaySimulator paymentGatewaySimulator;
 
+    // noRollbackFor: a declined charge must keep its FAILED payment and PaymentFailed outbox event
     @Override
-    @Transactional
-    public PaymentResponse charge(String tripId, PaymentChargeRequest request, String idempotencyKeyHeader, String correlationId) {
-        String idempotencyKey = resolveIdempotencyKey(request, idempotencyKeyHeader, tripId);
-        String resolvedCorrelationId = (correlationId != null && !correlationId.isBlank()) ? correlationId : UUID.randomUUID().toString();
-
-        log.info("Processing charge for tripId={}, idempotencyKey={}, correlationId={}",
+    @Transactional(noRollbackFor = PaymentDeclinedException.class)
+    public PaymentResponse charge(UUID tripId, PaymentChargeRequest request, String idempotencyKeyHeader, String correlationId) {
+        String idempotencyKey = resolveIdempotencyKey(request, idempotencyKeyHeader);
+        String resolvedCorrelationId = resolveCorrelationId(correlationId);
+        log.info("Processing charge: tripId={}, idempotencyKey={}, correlationId={}",
                 tripId, idempotencyKey, resolvedCorrelationId);
 
-        // Idempotency check: prevent duplicate charges
-        Optional<Payment> existingPaymentOpt = paymentRepository.findByIdempotencyKey(idempotencyKey);
-        if (existingPaymentOpt.isPresent()) {
-            Payment existing = existingPaymentOpt.get();
-            log.info("Duplicate idempotency key '{}' detected for trip {}. Returning existing payment {}",
-                    idempotencyKey, tripId, existing.getPaymentId());
-
-            if (!existing.getTripId().equals(tripId) || !existing.getAmount().equals(request.getAmount())) {
-                throw new ConflictException("Idempotency key already used for a different transaction", "IDEMPOTENCY_CONFLICT");
-            }
-            return mapToResponse(existing);
+        Optional<Payment> existing = paymentRepository.findByIdempotencyKey(idempotencyKey);
+        if (existing.isPresent()) {
+            return replayCharge(existing.get(), tripId, request, idempotencyKey);
         }
 
-        String paymentId = "pay-" + UUID.randomUUID().toString().substring(0, 8);
-        boolean isSimulatedFailure = Boolean.TRUE.equals(request.getSimulateFailure())
-                || (request.getPassengerId() != null && request.getPassengerId().contains("fail"))
-                || tripId.contains("fail");
-
-        if (isSimulatedFailure) {
-            log.warn("Simulated payment failure triggered for tripId={}, paymentId={}", tripId, paymentId);
-            Payment failedPayment = Payment.builder()
-                    .paymentId(paymentId)
-                    .tripId(tripId)
-                    .passengerId(request.getPassengerId())
-                    .amount(request.getAmount())
-                    .currency(request.getCurrency() != null ? request.getCurrency() : "VND")
-                    .status(PaymentStatus.FAILED)
-                    .failureReason("SIMULATED_FAILURE")
-                    .correlationId(resolvedCorrelationId)
-                    .idempotencyKey(idempotencyKey)
-                    .build();
-
-            paymentRepository.save(failedPayment);
-            saveOutboxEvent("PaymentFailed", paymentId, tripId, failedPayment, resolvedCorrelationId);
-            paymentEventProducer.publishPaymentFailed(paymentId, tripId, request.getPassengerId(),
-                    request.getAmount(), request.getCurrency(), "SIMULATED_FAILURE", resolvedCorrelationId, null);
-
-            throw new BusinessException("Payment charge failed: simulated payment failure",
-                    HttpStatus.PAYMENT_REQUIRED, "PAYMENT_FAILED");
+        // BR-05: a trip is charged once, even when the client retries with a new idempotency key
+        if (paymentRepository.existsByTripIdAndStatus(tripId, PaymentStatus.SUCCESS)) {
+            throw new ConflictException("Trip " + tripId + " has already been paid", "PAYMENT_ALREADY_CAPTURED");
         }
 
-        Instant now = Instant.now();
-        Payment payment = Payment.builder()
-                .paymentId(paymentId)
-                .tripId(tripId)
-                .passengerId(request.getPassengerId())
-                .amount(request.getAmount())
-                .currency(request.getCurrency() != null ? request.getCurrency() : "VND")
-                .status(PaymentStatus.SUCCESS)
-                .paymentMethod("MOCK_CARD")
-                .gatewayRef("GW-" + UUID.randomUUID().toString().substring(0, 8))
-                .correlationId(resolvedCorrelationId)
-                .idempotencyKey(idempotencyKey)
-                .capturedAt(now)
-                .build();
-
-        Payment savedPayment = paymentRepository.save(payment);
-        log.info("Payment {} charged successfully for tripId={}, amount={}", paymentId, tripId, request.getAmount());
-
-        saveOutboxEvent("PaymentSucceeded", paymentId, tripId, savedPayment, resolvedCorrelationId);
-        paymentEventProducer.publishPaymentSucceeded(paymentId, tripId, request.getPassengerId(),
-                request.getAmount(), request.getCurrency(), resolvedCorrelationId, null);
-
-        return mapToResponse(savedPayment);
+        Payment payment = processCharge(tripId, request.getPassengerId(), request.getAmount(),
+                resolveCurrency(request.getCurrency()), idempotencyKey, resolvedCorrelationId, null);
+        if (payment.getStatus() == PaymentStatus.FAILED) {
+            throw new PaymentDeclinedException("Payment charge failed: " + payment.getFailureReason());
+        }
+        return mapToResponse(payment);
     }
 
     @Override
     @Transactional(readOnly = true)
-    public PaymentResponse getPaymentByTripId(String tripId) {
+    public PaymentResponse getPaymentByTripId(UUID tripId) {
         Payment payment = paymentRepository.findTopByTripIdOrderByCreatedAtDesc(tripId)
                 .orElseThrow(() -> new ResourceNotFoundException("No payment found for trip " + tripId));
         return mapToResponse(payment);
@@ -121,18 +82,15 @@ public class PaymentServiceImpl implements PaymentService {
 
     @Override
     @Transactional
-    public PaymentResponse refund(String tripId, String correlationId) {
-        String resolvedCorrelationId = (correlationId != null && !correlationId.isBlank()) ? correlationId : UUID.randomUUID().toString();
-        log.info("Processing refund for tripId={}, correlationId={}", tripId, resolvedCorrelationId);
-
+    public PaymentResponse refund(UUID tripId, String correlationId) {
+        log.info("Processing refund: tripId={}, correlationId={}", tripId, correlationId);
         Payment payment = paymentRepository.findTopByTripIdOrderByCreatedAtDesc(tripId)
                 .orElseThrow(() -> new ResourceNotFoundException("No payment found for trip " + tripId));
 
         if (payment.getStatus() == PaymentStatus.REFUNDED) {
-            log.info("Payment {} for trip {} is already refunded", payment.getPaymentId(), tripId);
+            log.info("Payment already refunded: paymentId={}, tripId={}", payment.getPaymentId(), tripId);
             return mapToResponse(payment);
         }
-
         if (payment.getStatus() != PaymentStatus.SUCCESS) {
             throw new ConflictException("Cannot refund payment with status: " + payment.getStatus(), "INVALID_REFUND_STATE");
         }
@@ -140,84 +98,130 @@ public class PaymentServiceImpl implements PaymentService {
         payment.setStatus(PaymentStatus.REFUNDED);
         payment.setRefundedAt(Instant.now());
         Payment saved = paymentRepository.save(payment);
-        log.info("Payment {} for trip {} refunded successfully", saved.getPaymentId(), tripId);
+        recordLedgerEntry(saved, LedgerEntryType.REFUND, saved.getAmount().negate(), "Refund for trip " + tripId);
 
+        log.info("Payment refunded: paymentId={}, tripId={}, amount={}", saved.getPaymentId(), tripId, saved.getAmount());
         return mapToResponse(saved);
     }
 
     @Override
     @Transactional
-    public void processTripCompleted(String eventId, String tripId, String passengerId,
-                                     Double finalFare, String currency, String correlationId) {
-        log.info("Processing TripCompleted event: eventId={}, tripId={}, fare={}", eventId, tripId, finalFare);
-
-        // Deduplication check: Section 21.1 CODING_CONVENTION
+    public void processTripCompleted(String eventId, UUID tripId, UUID passengerId, BigDecimal finalFare,
+                                     String currency, String correlationId) {
+        // Deduplication by eventId (CODING_CONVENTION §21.1)
         if (processedEventRepository.existsByEventId(eventId)) {
-            log.warn("Duplicate event detected, skipping eventId={}", eventId);
+            log.warn("Duplicate event detected, skipping: eventId={}, eventType={}, tripId={}",
+                    eventId, TRIP_COMPLETED_EVENT_TYPE, tripId);
             return;
         }
 
-        String idempotencyKey = "trip-" + tripId + "-completed";
-        String paymentId = "pay-" + UUID.randomUUID().toString().substring(0, 8);
-        Instant now = Instant.now();
+        // A TripCompleted re-published with a new eventId must not charge the trip a second time
+        String idempotencyKey = tripCompletedIdempotencyKey(tripId);
+        Optional<Payment> existing = paymentRepository.findByIdempotencyKey(idempotencyKey);
+        if (existing.isPresent() || paymentRepository.existsByTripIdAndStatus(tripId, PaymentStatus.SUCCESS)) {
+            log.warn("Trip already has a payment, skipping charge: eventId={}, tripId={}, correlationId={}",
+                    eventId, tripId, correlationId);
+        } else {
+            processCharge(tripId, passengerId, finalFare, resolveCurrency(currency), idempotencyKey, correlationId, eventId);
+        }
+
+        processedEventRepository.save(ProcessedEvent.builder()
+                .eventId(eventId)
+                .eventType(TRIP_COMPLETED_EVENT_TYPE)
+                .processedAt(Instant.now())
+                .build());
+    }
+
+    /**
+     * Charges through the simulated gateway and stores the payment, its ledger entry and the
+     * PaymentSucceeded / PaymentFailed outbox event in the caller's transaction.
+     */
+    private Payment processCharge(UUID tripId, UUID passengerId, BigDecimal amount, String currency,
+                                  String idempotencyKey, String correlationId, String causationId) {
+        UUID paymentId = UUID.randomUUID();
+        boolean declined = paymentGatewaySimulator.isDeclined();
 
         Payment payment = Payment.builder()
                 .paymentId(paymentId)
                 .tripId(tripId)
                 .passengerId(passengerId)
-                .amount(finalFare)
-                .currency(currency != null ? currency : "VND")
-                .status(PaymentStatus.SUCCESS)
-                .paymentMethod("MOCK_CARD")
-                .gatewayRef("GW-AUTO-" + UUID.randomUUID().toString().substring(0, 8))
+                .amount(amount)
+                .currency(currency)
+                .paymentMethod(MOCK_PAYMENT_METHOD)
                 .correlationId(correlationId)
                 .idempotencyKey(idempotencyKey)
-                .capturedAt(now)
                 .build();
 
-        Payment savedPayment = paymentRepository.save(payment);
+        if (declined) {
+            payment.setStatus(PaymentStatus.FAILED);
+            payment.setFailureReason(PaymentGatewaySimulator.SIMULATED_FAILURE);
+            Payment saved = paymentRepository.saveAndFlush(payment);
+            paymentEventProducer.publishPaymentFailed(saved, NO_RETRY, causationId);
+            log.warn("Payment declined: paymentId={}, tripId={}, amount={}, reason={}, correlationId={}",
+                    paymentId, tripId, amount, saved.getFailureReason(), correlationId);
+            return saved;
+        }
 
-        ProcessedEvent processedEvent = ProcessedEvent.builder()
-                .eventId(eventId)
-                .eventType("TripCompleted")
-                .processedAt(now)
-                .build();
-        processedEventRepository.save(processedEvent);
-
-        saveOutboxEvent("PaymentSucceeded", paymentId, tripId, savedPayment, correlationId);
-        paymentEventProducer.publishPaymentSucceeded(paymentId, tripId, passengerId, finalFare, currency, correlationId, eventId);
-
-        log.info("TripCompleted processed successfully for tripId={}, paymentId={}", tripId, paymentId);
+        payment.setStatus(PaymentStatus.SUCCESS);
+        payment.setGatewayRef("GW-" + UUID.randomUUID());
+        payment.setCapturedAt(Instant.now());
+        // saveAndFlush surfaces a duplicate idempotency key here instead of at commit time
+        Payment saved = paymentRepository.saveAndFlush(payment);
+        recordLedgerEntry(saved, LedgerEntryType.CAPTURE, amount, "Charge for trip " + tripId);
+        paymentEventProducer.publishPaymentSucceeded(saved, causationId);
+        log.info("Payment captured: paymentId={}, tripId={}, amount={} {}, correlationId={}",
+                paymentId, tripId, amount, currency, correlationId);
+        return saved;
     }
 
-    private String resolveIdempotencyKey(PaymentChargeRequest request, String headerKey, String tripId) {
+    // Repeating a charge with the same idempotency key returns the first result instead of charging again
+    private PaymentResponse replayCharge(Payment existing, UUID tripId, PaymentChargeRequest request, String idempotencyKey) {
+        if (!existing.getTripId().equals(tripId) || existing.getAmount().compareTo(request.getAmount()) != 0) {
+            throw new ConflictException("Idempotency key already used for a different transaction", "IDEMPOTENCY_CONFLICT");
+        }
+        log.info("Duplicate idempotency key, returning first result: idempotencyKey={}, paymentId={}, status={}",
+                idempotencyKey, existing.getPaymentId(), existing.getStatus());
+        if (existing.getStatus() == PaymentStatus.FAILED) {
+            throw new PaymentDeclinedException("Payment charge failed: " + existing.getFailureReason());
+        }
+        return mapToResponse(existing);
+    }
+
+    private void recordLedgerEntry(Payment payment, LedgerEntryType entryType, BigDecimal amount, String description) {
+        ledgerEntryRepository.save(LedgerEntry.builder()
+                .ledgerId(UUID.randomUUID())
+                .payment(payment)
+                .tripId(payment.getTripId())
+                .entryType(entryType)
+                .amount(amount)
+                .currency(payment.getCurrency())
+                .description(description)
+                .build());
+    }
+
+    // X-Idempotency-Key is required for a charge (docs/api.md §8); the body field is accepted as a fallback
+    private String resolveIdempotencyKey(PaymentChargeRequest request, String headerKey) {
         if (headerKey != null && !headerKey.isBlank()) {
             return headerKey;
         }
         if (request.getIdempotencyKey() != null && !request.getIdempotencyKey().isBlank()) {
             return request.getIdempotencyKey();
         }
-        return "charge-" + tripId + "-" + UUID.randomUUID();
+        throw new BusinessException("X-Idempotency-Key header is required to charge a payment",
+                HttpStatus.BAD_REQUEST, "IDEMPOTENCY_KEY_REQUIRED");
     }
 
-    private void saveOutboxEvent(String eventType, String paymentId, String tripId, Object payload, String correlationId) {
-        try {
-            String payloadJson = objectMapper.writeValueAsString(payload);
-            OutboxEvent outboxEvent = OutboxEvent.builder()
-                    .eventId(UUID.randomUUID().toString())
-                    .aggregateType("Payment")
-                    .aggregateId(paymentId)
-                    .eventType(eventType)
-                    .payload(payloadJson)
-                    .correlationId(correlationId)
-                    .published(true)
-                    .publishedAt(Instant.now())
-                    .retryCount(0)
-                    .build();
-            outboxEventRepository.save(outboxEvent);
-        } catch (Exception e) {
-            log.error("Failed to record outbox event for paymentId={}", paymentId, e);
-        }
+    // payments.correlation_id is NOT NULL; a direct call without X-Correlation-ID still gets a traceable id
+    private String resolveCorrelationId(String correlationId) {
+        return correlationId != null && !correlationId.isBlank() ? correlationId : UUID.randomUUID().toString();
+    }
+
+    private String resolveCurrency(String currency) {
+        return currency != null && !currency.isBlank() ? currency : DEFAULT_CURRENCY;
+    }
+
+    private static String tripCompletedIdempotencyKey(UUID tripId) {
+        return "trip-" + tripId + "-completed";
     }
 
     private PaymentResponse mapToResponse(Payment payment) {
