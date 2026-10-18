@@ -10,6 +10,10 @@ spring:
     username: ${SPRING_DATASOURCE_USERNAME:postgres}
     password: ${SPRING_DATASOURCE_PASSWORD:postgres}
     driver-class-name: org.postgresql.Driver
+    hikari:
+      # Fail fast when payment_db is down so a Kafka retry follows the 1s/2s/4s backoff of docs/events.md §8
+      # instead of waiting 30s per attempt
+      connection-timeout: ${DB_CONNECTION_TIMEOUT_MS:5000}
 
   jpa:
     hibernate:
