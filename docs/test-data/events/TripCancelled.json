@@ -1,0 +1,19 @@
+{
+  "eventId": "e0000000-0000-4000-8000-000000000008",
+  "eventType": "TripCancelled",
+  "aggregateId": "550e8400-e29b-41d4-a716-446655440000",
+  "aggregateType": "Trip",
+  "producer": "trip-service",
+  "correlationId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "causationId": null,
+  "schemaVersion": "1.0",
+  "occurredAt": "2026-09-30T10:01:30Z",
+  "payload": {
+    "tripId": "550e8400-e29b-41d4-a716-446655440000",
+    "passengerId": "a0000000-0000-4000-8000-000000000001",
+    "driverId": "d0000000-0000-4000-8000-000000000001",
+    "reason": "PASSENGER_CANCELLED",
+    "previousStatus": "ASSIGNED",
+    "cancelledAt": "2026-09-30T10:01:30Z"
+  }
+}

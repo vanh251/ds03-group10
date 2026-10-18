@@ -1,0 +1,21 @@
+{
+  "eventId": "e0000000-0000-4000-8000-000000000007",
+  "eventType": "PaymentFailed",
+  "aggregateId": "9b2f6a1e-3c4d-4e5f-8a6b-7c8d9e0f1a2b",
+  "aggregateType": "Payment",
+  "producer": "payment-service",
+  "correlationId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "causationId": "e0000000-0000-4000-8000-000000000005",
+  "schemaVersion": "1.0",
+  "occurredAt": "2026-09-30T10:25:15Z",
+  "payload": {
+    "paymentId": "9b2f6a1e-3c4d-4e5f-8a6b-7c8d9e0f1a2b",
+    "tripId": "550e8400-e29b-41d4-a716-446655440000",
+    "passengerId": "a0000000-0000-4000-8000-000000000001",
+    "amount": 47500,
+    "currency": "VND",
+    "reason": "SIMULATED_FAILURE",
+    "retryCount": 3,
+    "failedAt": "2026-09-30T10:25:15Z"
+  }
+}

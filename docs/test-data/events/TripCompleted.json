@@ -1,0 +1,21 @@
+{
+  "eventId": "e0000000-0000-4000-8000-000000000005",
+  "eventType": "TripCompleted",
+  "aggregateId": "550e8400-e29b-41d4-a716-446655440000",
+  "aggregateType": "Trip",
+  "producer": "trip-service",
+  "correlationId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "causationId": "e0000000-0000-4000-8000-000000000004",
+  "schemaVersion": "1.0",
+  "occurredAt": "2026-09-30T10:25:00Z",
+  "payload": {
+    "tripId": "550e8400-e29b-41d4-a716-446655440000",
+    "driverId": "d0000000-0000-4000-8000-000000000001",
+    "passengerId": "a0000000-0000-4000-8000-000000000001",
+    "actualDistanceKm": 2.8,
+    "actualDurationMin": 20,
+    "finalFare": 47500,
+    "currency": "VND",
+    "completedAt": "2026-09-30T10:25:00Z"
+  }
+}
