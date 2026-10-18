@@ -590,11 +590,11 @@ CREATE TABLE payments (
     amount              DECIMAL(10, 2) NOT NULL,
     currency            VARCHAR(3)   NOT NULL DEFAULT 'VND',
 
-    -- PENDING → PREAUTH_OK → CAPTURED → REFUNDED → FAILED
+    -- PENDING → SUCCESS → REFUNDED, or PENDING → FAILED
+    -- Same values as PaymentStatus (CODING_CONVENTION §12.4) and docs/api.md §7
     status              VARCHAR(20)  NOT NULL DEFAULT 'PENDING'
                             CHECK (status IN (
-                                'PENDING', 'PREAUTH_OK', 'CAPTURED',
-                                'REFUNDED', 'FAILED', 'CANCELLED'
+                                'PENDING', 'SUCCESS', 'FAILED', 'REFUNDED'
                             )),
 
     -- Simulated payment method
@@ -659,7 +659,7 @@ CREATE TABLE outbox_events (
     event_id            UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
     aggregate_type      VARCHAR(50)  NOT NULL DEFAULT 'Payment',
     aggregate_id        UUID        NOT NULL,   -- payment_id
-    event_type          VARCHAR(80)  NOT NULL,  -- e.g., 'payment.captured', 'payment.failed'
+    event_type          VARCHAR(80)  NOT NULL,  -- 'PaymentSucceeded' or 'PaymentFailed' (PascalCase, docs/events.md §2)
     payload             JSONB       NOT NULL,
     correlation_id      UUID        NOT NULL,
 

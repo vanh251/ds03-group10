@@ -263,11 +263,11 @@ sequenceDiagram
     Trip-->>Loc: 200 OK
     deactivate Trip
 
-    Trip-->>(KF): Publish [trip.completed] {tripId, estimatedFare, passengerId, correlationId}
+    Trip-->>(KF): Publish [trip.completed] {tripId, passengerId, finalFare, currency, correlationId}
     (KF)-->>Pay: Consume [trip.completed]
     activate Pay
     Note right of Pay: Check processed_events for deduplication<br/>INSERT ON CONFLICT DO NOTHING
-    Pay->>Pay: ACID TX: Save Payment(CAPTURED)<br/>+ Insert ledger(CAPTURE)<br/>+ Insert processed_events(eventId)<br/>+ Insert outbox_events(payment.success)
+    Pay->>Pay: ACID TX: Save Payment(SUCCESS)<br/>+ Insert ledger(CAPTURE)<br/>+ Insert processed_events(eventId)<br/>+ Insert outbox_events(PaymentSucceeded)
     deactivate Pay
     Pay-->>(KF): Publish [payment.success] {tripId, paymentId, amount, correlationId}
 
@@ -487,7 +487,7 @@ classDiagram
             +UUID passenger_id SOFT_REF
             +Decimal amount
             +String currency
-            +Enum status PENDING|PREAUTH_OK|CAPTURED|REFUNDED|FAILED|CANCELLED
+            +Enum status PENDING|SUCCESS|FAILED|REFUNDED
             +String payment_method
             +String gateway_ref
             +String idempotency_key UNIQUE

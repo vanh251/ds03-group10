@@ -2,10 +2,12 @@
 
 ## Ride-Hailing Microservices System (DS03)
 
-**Version:** 1.0.0  
-**Date:** 01/10/2026  
+**Version:** 1.1.0  
+**Date:** 18/10/2026  
 **Message Broker:** Apache Kafka 3.8.0 (KRaft mode)  
 **Bootstrap Server:** `kafka:9092` (Docker internal)
+
+> **Changes in 1.1.0 (lead decisions, 18/10/2026):** PascalCase `eventType`, plain-UUID ids and money as JSON numbers (§2 Value Conventions); Trip calls Pricing `/final` and Payment charges `finalFare` from `TripCompleted` without calling Pricing (§4.5); required `TripCompleted` payload fields (§4.5); `passengerId` added to `DriverReserved` (§4.2); payment events keep their payload, `causationId` = `TripCompleted.eventId` (§4.6, §4.7); `TripCompleted` is the only trigger of a charge (§4.5); cancellation releases the driver through both `DELETE /reserve` and `TripCancelled`, both idempotent (§4.8); `trip-events` consumer list completed (§3).
 
 ---
 
@@ -62,13 +64,13 @@ All events share a common envelope:
 
 ```json
 {
-  "eventId": "evt-550e8400-e29b-41d4-a716-446655440000",
+  "eventId": "e0000000-0000-4000-8000-000000000001",
   "eventType": "RideRequested",
-  "aggregateId": "trip-001",
+  "aggregateId": "550e8400-e29b-41d4-a716-446655440000",
   "aggregateType": "Trip",
   "producer": "trip-service",
-  "correlationId": "corr-f47ac10b-58cc-4372-a567-0e02b2c3d479",
-  "causationId": "evt-00000000-0000-0000-0000-000000000000",
+  "correlationId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "causationId": "e0000000-0000-4000-8000-000000000000",
   "schemaVersion": "1.0",
   "occurredAt": "2026-09-30T10:00:00.000Z",
   "payload": {}
@@ -77,12 +79,21 @@ All events share a common envelope:
 
 > **Identifiers:** every `driverId` in an event payload is the driver's identity user id (`drivers.driver_id = users.user_id`), the same value as the JWT `sub` and the `X-User-Id` header of that driver.
 
+### Value Conventions (contract v1.1)
+
+| Rule | Applies to |
+|---|---|
+| **`eventType` is always the PascalCase name** (`RideRequested`, `DriverReserved`, …). The dotted names in the section titles (`trip.requested`, …) are only labels for this document and never appear in a message. | every event |
+| **`eventId` and `causationId` are plain UUIDs** (RFC 4122, no `evt-` prefix). Consumers parse them as UUIDs. All ids in payloads (`tripId`, `passengerId`, `driverId`, `paymentId`) are plain UUIDs too. | every event |
+| **Money is a JSON number** with no quotes; VND amounts are whole numbers (e.g. `47500`). Every amount is sent together with `currency` (`"VND"`). Services hold money as `BigDecimal`, never `double`. | `estimatedFare`, `finalFare`, `amount` |
+| **`causationId` = `eventId` of the event that triggered this one** (e.g. `PaymentSucceeded.causationId` = the `TripCompleted.eventId`). `null` only for events started by an HTTP request. | every event |
+
 ### Envelope Fields
 
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `eventId` | UUID | Yes | Globally unique event ID. Used for deduplication |
-| `eventType` | string | Yes | Event name (PascalCase) |
+| `eventType` | string | Yes | Event name (PascalCase, see Value Conventions) |
 | `aggregateId` | string | Yes | ID of the primary aggregate (e.g., tripId) |
 | `aggregateType` | string | Yes | Type of aggregate (e.g., `Trip`, `Driver`, `Payment`) |
 | `producer` | string | Yes | Source service name |
@@ -98,7 +109,7 @@ All events share a common envelope:
 
 | Topic | Partitions | Producers | Consumers | Description |
 |---|---|---|---|---|
-| `trip-events` | 3 | trip-service | matching-service, notification-service | Trip lifecycle events |
+| `trip-events` | 3 | trip-service | matching-service, payment-service, driver-service, notification-service | Trip lifecycle events |
 | `matching-events` | 3 | matching-service | trip-service, notification-service | Driver matching results |
 | `payment-events` | 3 | payment-service | trip-service, notification-service | Payment results |
 | `trip-events.DLQ` | 1 | Kafka (auto) | Manual / monitoring | Dead letters from trip-events |
@@ -133,18 +144,18 @@ A passenger has created a ride request. Initiates the driver matching process.
 
 ```json
 {
-  "eventId": "evt-001",
+  "eventId": "e0000000-0000-4000-8000-000000000001",
   "eventType": "RideRequested",
-  "aggregateId": "trip-001",
+  "aggregateId": "550e8400-e29b-41d4-a716-446655440000",
   "aggregateType": "Trip",
   "producer": "trip-service",
-  "correlationId": "corr-001",
+  "correlationId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
   "causationId": null,
   "schemaVersion": "1.0",
   "occurredAt": "2026-09-30T10:00:00Z",
   "payload": {
-    "tripId": "trip-001",
-    "passengerId": "passenger-001",
+    "tripId": "550e8400-e29b-41d4-a716-446655440000",
+    "passengerId": "a0000000-0000-4000-8000-000000000001",
     "pickup": {
       "latitude": 21.0285,
       "longitude": 105.8542,
@@ -184,18 +195,19 @@ A driver has been successfully reserved by the Matching Service (CAS lock acquir
 
 ```json
 {
-  "eventId": "evt-002",
+  "eventId": "e0000000-0000-4000-8000-000000000002",
   "eventType": "DriverReserved",
-  "aggregateId": "trip-001",
+  "aggregateId": "550e8400-e29b-41d4-a716-446655440000",
   "aggregateType": "Trip",
   "producer": "matching-service",
-  "correlationId": "corr-001",
-  "causationId": "evt-001",
+  "correlationId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "causationId": "e0000000-0000-4000-8000-000000000001",
   "schemaVersion": "1.0",
   "occurredAt": "2026-09-30T10:00:05Z",
   "payload": {
-    "tripId": "trip-001",
-    "driverId": "d001",
+    "tripId": "550e8400-e29b-41d4-a716-446655440000",
+    "passengerId": "a0000000-0000-4000-8000-000000000001",
+    "driverId": "d0000000-0000-4000-8000-000000000001",
     "driverName": "Tran Van B",
     "driverLocation": {
       "latitude": 21.0290,
@@ -212,7 +224,9 @@ A driver has been successfully reserved by the Matching Service (CAS lock acquir
 | Consumer | Action |
 |---|---|
 | trip-service | Update trip status: `SEARCHING -> ASSIGNED`; record `DRIVER_RESERVED` in `saga_log` |
-| notification-service | Notify passenger: "Driver found! [name] is on the way" |
+| notification-service | Notify passenger (`payload.passengerId`): "Driver found! [name] is on the way" |
+
+> `passengerId` (contract v1.1) is copied by Matching Service from the `RideRequested` that started the match, so Notification Service can address the passenger without another lookup.
 
 ---
 
@@ -230,19 +244,19 @@ A driver has been formally assigned to the trip by Trip Service.
 
 ```json
 {
-  "eventId": "evt-003",
+  "eventId": "e0000000-0000-4000-8000-000000000003",
   "eventType": "DriverAssigned",
-  "aggregateId": "trip-001",
+  "aggregateId": "550e8400-e29b-41d4-a716-446655440000",
   "aggregateType": "Trip",
   "producer": "trip-service",
-  "correlationId": "corr-001",
-  "causationId": "evt-002",
+  "correlationId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "causationId": "e0000000-0000-4000-8000-000000000002",
   "schemaVersion": "1.0",
   "occurredAt": "2026-09-30T10:00:06Z",
   "payload": {
-    "tripId": "trip-001",
-    "driverId": "d001",
-    "passengerId": "passenger-001",
+    "tripId": "550e8400-e29b-41d4-a716-446655440000",
+    "driverId": "d0000000-0000-4000-8000-000000000001",
+    "passengerId": "a0000000-0000-4000-8000-000000000001",
     "assignedAt": "2026-09-30T10:00:06Z"
   }
 }
@@ -273,19 +287,19 @@ The driver has started the trip (picked up the passenger).
 
 ```json
 {
-  "eventId": "evt-004",
+  "eventId": "e0000000-0000-4000-8000-000000000004",
   "eventType": "TripStarted",
-  "aggregateId": "trip-001",
+  "aggregateId": "550e8400-e29b-41d4-a716-446655440000",
   "aggregateType": "Trip",
   "producer": "trip-service",
-  "correlationId": "corr-001",
-  "causationId": "evt-003",
+  "correlationId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "causationId": "e0000000-0000-4000-8000-000000000003",
   "schemaVersion": "1.0",
   "occurredAt": "2026-09-30T10:05:00Z",
   "payload": {
-    "tripId": "trip-001",
-    "driverId": "d001",
-    "passengerId": "passenger-001",
+    "tripId": "550e8400-e29b-41d4-a716-446655440000",
+    "driverId": "d0000000-0000-4000-8000-000000000001",
+    "passengerId": "a0000000-0000-4000-8000-000000000001",
     "startedAt": "2026-09-30T10:05:00Z",
     "driverLocation": {
       "latitude": 21.0285,
@@ -311,25 +325,38 @@ The driver has completed the trip (arrived at destination). Triggers payment pro
 **Producer:** `trip-service`  
 **Consumers:** `payment-service`, `driver-service`, `notification-service`
 
-**Trigger:** Driver calls `POST /api/trips/{id}/complete`
+**Trigger:** Driver calls `POST /api/trips/{id}/complete`. Before publishing, Trip Service calls Pricing Service `POST /api/pricing/final` synchronously and stores the result as `finalFare` (contract v1.1). `finalFare` in this event is the amount to charge: Payment Service does **not** call Pricing again.
+
+**Payload fields (all required, contract v1.1):**
+
+| Field | Type | Description |
+|---|---|---|
+| `tripId` | UUID | Trip being completed |
+| `driverId` | UUID | Driver who completed the trip |
+| `passengerId` | UUID | Passenger to charge. An event without it is rejected by Payment Service and sent to `trip-events.DLQ` |
+| `actualDistanceKm` | number | Distance sent to Pricing `/final` |
+| `actualDurationMin` | integer | Duration sent to Pricing `/final` |
+| `finalFare` | number | Amount to charge, as returned by Pricing `/final` (`totalFare`); must be > 0 |
+| `currency` | string | ISO 4217 code, `"VND"` |
+| `completedAt` | ISO 8601 | UTC time the trip was completed |
 
 **Full Event:**
 
 ```json
 {
-  "eventId": "evt-005",
+  "eventId": "e0000000-0000-4000-8000-000000000005",
   "eventType": "TripCompleted",
-  "aggregateId": "trip-001",
+  "aggregateId": "550e8400-e29b-41d4-a716-446655440000",
   "aggregateType": "Trip",
   "producer": "trip-service",
-  "correlationId": "corr-001",
-  "causationId": "evt-004",
+  "correlationId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "causationId": "e0000000-0000-4000-8000-000000000004",
   "schemaVersion": "1.0",
   "occurredAt": "2026-09-30T10:25:00Z",
   "payload": {
-    "tripId": "trip-001",
-    "driverId": "d001",
-    "passengerId": "passenger-001",
+    "tripId": "550e8400-e29b-41d4-a716-446655440000",
+    "driverId": "d0000000-0000-4000-8000-000000000001",
+    "passengerId": "a0000000-0000-4000-8000-000000000001",
     "actualDistanceKm": 2.8,
     "actualDurationMin": 20,
     "finalFare": 47500,
@@ -343,7 +370,7 @@ The driver has completed the trip (arrived at destination). Triggers payment pro
 
 | Consumer | Action |
 |---|---|
-| payment-service | Deduplicate via `eventId` → process charge → publish `payment.success` or `payment.failed` |
+| payment-service | Deduplicate via `eventId` → charge `finalFare` once per trip (idempotency key `trip-{tripId}-completed`) → publish `payment.success` or `payment.failed` with `causationId` = this `eventId`. This event is the **only** trigger of a charge in the business flow (contract v1.1); `POST /api/payments/{tripId}/charge` is for manual tests only |
 | driver-service | Dedup via `eventId` → release driver `BUSY -> AVAILABLE` only if `drivers.reserved_for_trip = tripId`; clear `reserved_for_trip`, `version + 1`. No match → log and skip |
 | notification-service | Notify passenger: "Trip completed. Processing payment..." |
 
@@ -365,19 +392,19 @@ Payment has been captured successfully.
 
 ```json
 {
-  "eventId": "evt-006",
+  "eventId": "e0000000-0000-4000-8000-000000000006",
   "eventType": "PaymentSucceeded",
-  "aggregateId": "pay-001",
+  "aggregateId": "9b2f6a1e-3c4d-4e5f-8a6b-7c8d9e0f1a2b",
   "aggregateType": "Payment",
   "producer": "payment-service",
-  "correlationId": "corr-001",
-  "causationId": "evt-005",
+  "correlationId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "causationId": "e0000000-0000-4000-8000-000000000005",
   "schemaVersion": "1.0",
   "occurredAt": "2026-09-30T10:25:05Z",
   "payload": {
-    "paymentId": "pay-001",
-    "tripId": "trip-001",
-    "passengerId": "passenger-001",
+    "paymentId": "9b2f6a1e-3c4d-4e5f-8a6b-7c8d9e0f1a2b",
+    "tripId": "550e8400-e29b-41d4-a716-446655440000",
+    "passengerId": "a0000000-0000-4000-8000-000000000001",
     "amount": 47500,
     "currency": "VND",
     "processedAt": "2026-09-30T10:25:05Z"
@@ -391,7 +418,9 @@ Payment has been captured successfully.
 |---|---|
 | trip-service | Update trip status: `COMPLETED -> PAID`; record `SAGA_COMPLETED` in `saga_log` |
 | notification-service | Notify passenger: "Payment successful. Thank you for riding!" |
-| notification-service | Notify driver: "Payment received for trip [id]" |
+| notification-service | Notify driver: "Payment received for trip [id]". The payload has no `driverId`: Notification Service takes the driver from the earlier `DriverAssigned` / `TripCompleted` of the same trip |
+
+> **Payload (contract v1.1, unchanged):** `paymentId`, `tripId`, `passengerId`, `amount`, `currency`, `processedAt`. `causationId` is the `eventId` of the `TripCompleted` that was charged; it is `null` for a manual charge through REST.
 
 ---
 
@@ -409,19 +438,19 @@ Payment charge has failed.
 
 ```json
 {
-  "eventId": "evt-007",
+  "eventId": "e0000000-0000-4000-8000-000000000007",
   "eventType": "PaymentFailed",
-  "aggregateId": "pay-001",
+  "aggregateId": "9b2f6a1e-3c4d-4e5f-8a6b-7c8d9e0f1a2b",
   "aggregateType": "Payment",
   "producer": "payment-service",
-  "correlationId": "corr-001",
-  "causationId": "evt-005",
+  "correlationId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "causationId": "e0000000-0000-4000-8000-000000000005",
   "schemaVersion": "1.0",
   "occurredAt": "2026-09-30T10:25:15Z",
   "payload": {
-    "paymentId": "pay-001",
-    "tripId": "trip-001",
-    "passengerId": "passenger-001",
+    "paymentId": "9b2f6a1e-3c4d-4e5f-8a6b-7c8d9e0f1a2b",
+    "tripId": "550e8400-e29b-41d4-a716-446655440000",
+    "passengerId": "a0000000-0000-4000-8000-000000000001",
     "amount": 47500,
     "currency": "VND",
     "reason": "SIMULATED_FAILURE",
@@ -440,6 +469,8 @@ Payment charge has failed.
 
 > **Note:** Driver state is NOT rolled back. The driver has completed their service. Only the payment record is marked failed for retry or manual resolution.
 
+> **Payload (contract v1.1, unchanged):** `paymentId`, `tripId`, `passengerId`, `amount`, `currency`, `reason`, `retryCount`, `failedAt`. `causationId` follows the same rule as `payment.success`.
+
 ---
 
 ### 4.8. `trip.cancelled`
@@ -456,19 +487,19 @@ A trip has been cancelled by the passenger (or timeout).
 
 ```json
 {
-  "eventId": "evt-008",
+  "eventId": "e0000000-0000-4000-8000-000000000008",
   "eventType": "TripCancelled",
-  "aggregateId": "trip-001",
+  "aggregateId": "550e8400-e29b-41d4-a716-446655440000",
   "aggregateType": "Trip",
   "producer": "trip-service",
-  "correlationId": "corr-001",
+  "correlationId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
   "causationId": null,
   "schemaVersion": "1.0",
   "occurredAt": "2026-09-30T10:01:30Z",
   "payload": {
-    "tripId": "trip-001",
-    "passengerId": "passenger-001",
-    "driverId": "d001",
+    "tripId": "550e8400-e29b-41d4-a716-446655440000",
+    "passengerId": "a0000000-0000-4000-8000-000000000001",
+    "driverId": "d0000000-0000-4000-8000-000000000001",
     "reason": "PASSENGER_CANCELLED",
     "previousStatus": "ASSIGNED",
     "cancelledAt": "2026-09-30T10:01:30Z"
@@ -492,6 +523,8 @@ A trip has been cancelled by the passenger (or timeout).
 | matching-service | Cancel any in-progress matching job |
 | notification-service | Notify passenger: "Trip cancelled" |
 | notification-service | Notify driver (if assigned): "Trip has been cancelled" |
+
+> **Two compensation paths (contract v1.1):** as SRS §13.2 requires, Trip Service also releases a reserved driver synchronously with `DELETE /api/drivers/{driverId}/reserve` before publishing this event. Both paths are safe to run together: each one acts only while `drivers.reserved_for_trip = tripId`, so whichever runs second finds nothing to release, logs and skips.
 
 ---
 
@@ -548,7 +581,7 @@ Messages that cannot be processed after maximum retries are moved to the DLQ top
   "originalPartition": 0,
   "originalOffset": 123,
   "originalMessage": {
-    "eventId": "evt-005",
+    "eventId": "e0000000-0000-4000-8000-000000000005",
     "eventType": "TripCompleted",
     "...": "..."
   },
@@ -556,7 +589,7 @@ Messages that cannot be processed after maximum retries are moved to the DLQ top
   "retryCount": 3,
   "firstFailedAt": "2026-09-30T10:25:01Z",
   "lastFailedAt": "2026-09-30T10:25:15Z",
-  "correlationId": "corr-001"
+  "correlationId": "f47ac10b-58cc-4372-a567-0e02b2c3d479"
 }
 ```
 
@@ -696,6 +729,7 @@ Complete event flow for a successful ride:
         |  -> Trip status: ASSIGNED -> IN_PROGRESS
         v
 [9] Driver: POST /api/trips/{id}/complete
+        |  -> POST /api/pricing/final (sync REST) -> finalFare
         |  -> Trip status: IN_PROGRESS -> COMPLETED  (saga_log: TRIP_COMPLETED)
         v
 [10] trip-service publishes: trip.completed -> trip-events
@@ -707,7 +741,7 @@ Complete event flow for a successful ride:
         v
 [11] payment-service consumes: trip.completed
         |  -> Deduplication check
-        |  -> Process charge
+        |  -> Charge finalFare from the event (no call to Pricing)
         v
 [12] payment-service publishes: payment.success -> payment-events
         |
@@ -745,15 +779,15 @@ correlationId = UUID.randomUUID()  // generated once per business flow
 ### Example Trace
 
 ```
-Request: POST /api/trips  [X-Correlation-ID: corr-001]
-  -> trip.requested       [correlationId: corr-001]
-    -> driver.reserved    [correlationId: corr-001]
-      -> driver.assigned  [correlationId: corr-001]
-        -> trip.completed [correlationId: corr-001]
-          -> payment.success [correlationId: corr-001]
+Request: POST /api/trips  [X-Correlation-ID: f47ac10b-58cc-4372-a567-0e02b2c3d479]
+  -> trip.requested       [correlationId: f47ac10b-58cc-4372-a567-0e02b2c3d479]
+    -> driver.reserved    [correlationId: f47ac10b-58cc-4372-a567-0e02b2c3d479]
+      -> driver.assigned  [correlationId: f47ac10b-58cc-4372-a567-0e02b2c3d479]
+        -> trip.completed [correlationId: f47ac10b-58cc-4372-a567-0e02b2c3d479]
+          -> payment.success [correlationId: f47ac10b-58cc-4372-a567-0e02b2c3d479]
 
 # Query all logs for a single ride:
-grep correlationId=corr-001 *.log
+grep correlationId=f47ac10b-58cc-4372-a567-0e02b2c3d479 *.log
 ```
 
 ### Prometheus Label
@@ -761,5 +795,5 @@ grep correlationId=corr-001 *.log
 Include `correlationId` in trace-level metrics for distributed tracing integration:
 
 ```
-http_request_duration_seconds{service="trip-service", correlation_id="corr-001"}
+http_request_duration_seconds{service="trip-service", correlation_id="f47ac10b-58cc-4372-a567-0e02b2c3d479"}
 ```

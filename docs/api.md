@@ -2,8 +2,8 @@
 
 ## Ride-Hailing Microservices System (DS03)
 
-**Version:** 1.0.0  
-**Date:** 01/10/2026  
+**Version:** 1.1.0  
+**Date:** 18/10/2026  
 **Base URL (via API Gateway):** `http://localhost:8080`  
 **Authentication:** Bearer JWT (obtained from Identity Service login)
 
@@ -462,7 +462,7 @@ Reserve a driver (CAS lock with 30s lease). Used internally by Matching Service.
 **Request Body:**
 ```json
 {
-  "tripId": "trip-001",
+  "tripId": "550e8400-e29b-41d4-a716-446655440000",
   "expectedVersion": 5
 }
 ```
@@ -470,9 +470,9 @@ Reserve a driver (CAS lock with 30s lease). Used internally by Matching Service.
 **Response 200 OK:**
 ```json
 {
-  "driverId": "d001",
+  "driverId": "d0000000-0000-4000-8000-000000000001",
   "status": "RESERVED",
-  "reservedForTrip": "trip-001",
+  "reservedForTrip": "550e8400-e29b-41d4-a716-446655440000",
   "reservedUntil": "2026-09-30T10:12:30Z",
   "version": 6
 }
@@ -557,9 +557,9 @@ Create a ride request. Triggers matching flow.
 **Response 201 Created:**
 ```json
 {
-  "tripId": "trip-001",
+  "tripId": "550e8400-e29b-41d4-a716-446655440000",
   "status": "SEARCHING",
-  "passengerId": "passenger-001",
+  "passengerId": "a0000000-0000-4000-8000-000000000001",
   "pickup": {
     "latitude": 21.0285,
     "longitude": 105.8542,
@@ -571,7 +571,7 @@ Create a ride request. Triggers matching flow.
     "address": "Dong Da, Hanoi"
   },
   "estimatedFare": 45000,
-  "correlationId": "corr-001",
+  "correlationId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
   "createdAt": "2026-09-30T10:00:00Z"
 }
 ```
@@ -591,15 +591,15 @@ Get trip details.
 **Response 200 OK:**
 ```json
 {
-  "tripId": "trip-001",
+  "tripId": "550e8400-e29b-41d4-a716-446655440000",
   "status": "ASSIGNED",
-  "passengerId": "passenger-001",
-  "driverId": "d001",
+  "passengerId": "a0000000-0000-4000-8000-000000000001",
+  "driverId": "d0000000-0000-4000-8000-000000000001",
   "pickup": { "latitude": 21.0285, "longitude": 105.8542 },
   "destination": { "latitude": 21.0188, "longitude": 105.8520 },
   "estimatedFare": 45000,
   "finalFare": null,
-  "correlationId": "corr-001",
+  "correlationId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
   "createdAt": "2026-09-30T10:00:00Z",
   "updatedAt": "2026-09-30T10:02:00Z"
 }
@@ -616,9 +616,9 @@ Driver accepts assigned trip.
 **Response 200 OK:**
 ```json
 {
-  "tripId": "trip-001",
+  "tripId": "550e8400-e29b-41d4-a716-446655440000",
   "status": "ASSIGNED",
-  "driverId": "d001",
+  "driverId": "d0000000-0000-4000-8000-000000000001",
   "updatedAt": "2026-09-30T10:03:00Z"
 }
 ```
@@ -634,7 +634,7 @@ Driver starts the trip (picks up passenger).
 **Response 200 OK:**
 ```json
 {
-  "tripId": "trip-001",
+  "tripId": "550e8400-e29b-41d4-a716-446655440000",
   "status": "IN_PROGRESS",
   "startedAt": "2026-09-30T10:05:00Z"
 }
@@ -651,7 +651,7 @@ Driver completes the trip (arrives at destination).
 **Response 200 OK:**
 ```json
 {
-  "tripId": "trip-001",
+  "tripId": "550e8400-e29b-41d4-a716-446655440000",
   "status": "COMPLETED",
   "finalFare": 47500,
   "completedAt": "2026-09-30T10:25:00Z"
@@ -659,8 +659,9 @@ Driver completes the trip (arrives at destination).
 ```
 
 Side effects:
-- Publishes `trip.completed` event to Kafka
-- Payment Service processes payment asynchronously
+- Calls Pricing Service `POST /api/pricing/final` synchronously; its `totalFare` becomes `finalFare`
+- Publishes `trip.completed` event to Kafka with the full payload of docs/events.md §4.5 (`passengerId`, `finalFare`, `currency`, …)
+- Payment Service charges `finalFare` asynchronously when it consumes that event; it does not call Pricing again
 
 ---
 
@@ -680,15 +681,17 @@ Cancel a trip. Valid when status is `SEARCHING` or `ASSIGNED`.
 **Response 200 OK:**
 ```json
 {
-  "tripId": "trip-001",
+  "tripId": "550e8400-e29b-41d4-a716-446655440000",
   "status": "CANCELLED",
   "cancelledAt": "2026-09-30T10:01:30Z"
 }
 ```
 
 Side effects:
-- Compensation: `DELETE /api/drivers/{driverId}/reserve` (if driver was RESERVED/ASSIGNED)
-- Publishes `trip.cancelled` event to Kafka
+- Compensation: `DELETE /api/drivers/{driverId}/reserve` (if driver was RESERVED/ASSIGNED), as required by SRS §13.2
+- Publishes `trip.cancelled` event to Kafka; driver-service also releases the driver when it consumes it
+
+> Both compensation paths may run for the same cancellation. Each acts only while `drivers.reserved_for_trip` still equals this trip, so the second one finds nothing to release (see docs/events.md §4.8).
 
 ---
 
@@ -710,7 +713,7 @@ Manually trigger matching for a ride request.
 **Response 202 Accepted:**
 ```json
 {
-  "requestId": "trip-001",
+  "requestId": "550e8400-e29b-41d4-a716-446655440000",
   "status": "MATCHING",
   "message": "Matching process initiated"
 }
@@ -727,7 +730,7 @@ Trigger rematch when initial driver rejected.
 **Response 202 Accepted:**
 ```json
 {
-  "requestId": "trip-001",
+  "requestId": "550e8400-e29b-41d4-a716-446655440000",
   "status": "REMATCHING",
   "attempt": 2
 }
@@ -740,7 +743,9 @@ Trigger rematch when initial driver rejected.
 **Internal address:** `http://pricing-service:8085`  
 **Gateway prefix:** `/api/pricing/**`
 
-> Note: Pricing Service is stateless. No database. Called synchronously by Trip Service.
+> Note: Pricing Service is stateless. No database. Called synchronously by Trip Service only: `/quote` when a trip is created, `/final` when it is completed. Payment Service never calls Pricing; it charges the `finalFare` carried by `TripCompleted`.
+>
+> Distance and duration of a quote are always estimated by Pricing Service from the coordinates (route distance = straight line × 1.25, 20 km/h city speed). The request has no field to override them.
 
 ---
 
@@ -793,7 +798,7 @@ Calculate final fare after trip completion (actual distance/duration).
 **Request Body:**
 ```json
 {
-  "tripId": "trip-001",
+  "tripId": "550e8400-e29b-41d4-a716-446655440000",
   "actualDistanceKm": 2.8,
   "actualDurationMin": 15
 }
@@ -802,7 +807,7 @@ Calculate final fare after trip completion (actual distance/duration).
 **Response 200 OK:**
 ```json
 {
-  "tripId": "trip-001",
+  "tripId": "550e8400-e29b-41d4-a716-446655440000",
   "baseFare": 15000,
   "distanceFare": 14000,
   "timeFare": 7500,
@@ -818,33 +823,46 @@ Calculate final fare after trip completion (actual distance/duration).
 **Internal address:** `http://payment-service:8086`  
 **Gateway prefix:** `/api/payments/**`
 
-> Note: Payment is triggered primarily via Kafka (`trip.completed` event). REST endpoints allow manual trigger and status check.
+> Note: In the business flow a payment is triggered **only** by the Kafka event `TripCompleted` (docs/events.md §4.5); Trip Service never calls `/charge`. The REST charge exists for manual tests and the status/refund endpoints for checks and compensation.
+>
+> Failures can be simulated with `PAYMENT_FAILURE_MODE` = `none` (default) / `always` / `rate` (with `PAYMENT_FAILURE_RATE` between 0 and 1). A declined charge is stored as `FAILED` and publishes `PaymentFailed`.
 
 ---
 
 ### POST /api/payments/{tripId}/charge
 
-Initiate payment charge for a completed trip.
+Charge a passenger for a trip (manual test path).
 
 **Auth required:** Yes (internal)
+
+**Path Parameters:** `tripId` – UUID
+
+**Headers:** `X-Idempotency-Key` – required (the body field `idempotencyKey` is accepted when the header is absent)
 
 **Request Body:**
 ```json
 {
-  "passengerId": "passenger-001",
+  "passengerId": "a0000000-0000-4000-8000-000000000001",
   "amount": 36500,
   "currency": "VND",
-  "idempotencyKey": "trip-001-charge-001"
+  "idempotencyKey": "charge-550e8400-e29b-41d4-a716-446655440000-1"
 }
 ```
 
-> `idempotencyKey` prevents duplicate charges on retry.
+| Field | Type | Required | Constraints |
+|---|---|---|---|
+| passengerId | UUID | Yes | |
+| amount | number | Yes | > 0, at most 8 integer digits and 2 decimals |
+| currency | string | No | 3 upper-case letters (ISO 4217), default `VND` |
+| idempotencyKey | string | No | max 255 chars; used only when the header is absent |
+
+> Repeating the call with the same idempotency key returns the first result (the same `paymentId`, or `402` again if it was declined) and never charges twice. A trip has at most one `SUCCESS` payment.
 
 **Response 201 Created:**
 ```json
 {
-  "paymentId": "pay-001",
-  "tripId": "trip-001",
+  "paymentId": "9b2f6a1e-3c4d-4e5f-8a6b-7c8d9e0f1a2b",
+  "tripId": "550e8400-e29b-41d4-a716-446655440000",
   "status": "SUCCESS",
   "amount": 36500,
   "currency": "VND",
@@ -853,26 +871,37 @@ Initiate payment charge for a completed trip.
 ```
 
 **Errors:**
-- `409` – Duplicate idempotency key (already processed)
-- `402` – Simulated payment failure
+- `400 VALIDATION_ERROR` – Missing field, amount ≤ 0, invalid currency
+- `400 MALFORMED_REQUEST` – Body is not valid JSON or `passengerId` is not a UUID
+- `400 INVALID_PARAMETER` – `tripId` is not a UUID
+- `400 IDEMPOTENCY_KEY_REQUIRED` – No idempotency key in header or body
+- `402 PAYMENT_FAILED` – Simulated payment failure (the `FAILED` payment is kept)
+- `409 IDEMPOTENCY_CONFLICT` – Key already used for a different trip or amount, or the same key is being processed concurrently
+- `409 PAYMENT_ALREADY_CAPTURED` – The trip already has a `SUCCESS` payment
 
 ---
 
 ### POST /api/payments/{tripId}/refund
 
-Refund a payment (compensating action for cancellation after charge).
+Refund the successful payment of a trip (compensating action for cancellation after charge). Writes a negative `REFUND` ledger entry. Refunding an already refunded payment returns it unchanged.
 
 **Auth required:** Yes (internal)
 
 **Response 200 OK:**
 ```json
 {
-  "paymentId": "pay-001",
-  "tripId": "trip-001",
+  "paymentId": "9b2f6a1e-3c4d-4e5f-8a6b-7c8d9e0f1a2b",
+  "tripId": "550e8400-e29b-41d4-a716-446655440000",
   "status": "REFUNDED",
   "refundedAt": "2026-09-30T10:30:00Z"
 }
 ```
+
+**Errors:**
+- `400 INVALID_PARAMETER` – `tripId` is not a UUID
+- `404 RESOURCE_NOT_FOUND` – No payment for this trip
+- `409 INVALID_REFUND_STATE` – Latest payment is not `SUCCESS` (e.g. `FAILED`)
+- `409 CONCURRENT_UPDATE` – The payment was changed by another request; retry
 
 ---
 
@@ -885,8 +914,8 @@ Get payment status for a trip.
 **Response 200 OK:**
 ```json
 {
-  "paymentId": "pay-001",
-  "tripId": "trip-001",
+  "paymentId": "9b2f6a1e-3c4d-4e5f-8a6b-7c8d9e0f1a2b",
+  "tripId": "550e8400-e29b-41d4-a716-446655440000",
   "status": "SUCCESS",
   "amount": 36500,
   "currency": "VND",
@@ -894,14 +923,15 @@ Get payment status for a trip.
 }
 ```
 
-**Payment Status Values:**
+Returns the latest payment of the trip. **Errors:** `400 INVALID_PARAMETER` (not a UUID), `404 RESOURCE_NOT_FOUND`.
+
+**Payment Status Values** (CODING_CONVENTION §12.4):
 
 | Status | Description |
 |---|---|
 | `PENDING` | Payment initiated, not yet processed |
-| `PROCESSING` | Being processed |
 | `SUCCESS` | Payment captured successfully |
-| `FAILED` | Payment failed |
+| `FAILED` | Payment failed (declined) |
 | `REFUNDED` | Payment refunded |
 
 ---
@@ -916,7 +946,7 @@ Get payment status for a trip.
 | `Content-Type` | Yes (for POST/PATCH) | `application/json` |
 | `X-Correlation-ID` | No (auto-generated if absent) | Trace ID for distributed tracing |
 | `X-Request-ID` | No | Unique per-request ID |
-| `X-Idempotency-Key` | Required for payment charge | Prevents duplicate operations |
+| `X-Idempotency-Key` | Required for payment charge (or `idempotencyKey` in the body) | Prevents duplicate operations |
 | `X-Internal-Api-Key` | Required for `/internal/**` (service-to-service only) | Shared secret `INTERNAL_API_KEY`; never sent by clients |
 
 ### Pagination (for list endpoints)
@@ -924,6 +954,11 @@ Get payment status for a trip.
 ```
 GET /api/drivers/available?page=0&size=10&sort=distanceKm,asc
 ```
+
+### Identifiers and Money
+
+- Resource ids (`tripId`, `passengerId`, `driverId`, `paymentId`) are plain UUIDs.
+- Money is a JSON number without quotes, sent together with `currency`. VND amounts are whole numbers (e.g. `36500`); values read back from the database may carry two decimals (`36500.00`), which is the same amount. Services hold money as `BigDecimal`.
 
 ### Timestamps
 
@@ -946,7 +981,8 @@ Error responses follow:
   "error": "Bad Request",
   "message": "Email already registered",
   "path": "/api/auth/register/passenger",
-  "correlationId": "corr-001"
+  "correlationId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "code": "EMAIL_ALREADY_REGISTERED"
 }
 ```
 
