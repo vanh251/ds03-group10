@@ -115,13 +115,17 @@ PAID
   "eventId": "UUID",
   "eventType": "RideRequested",
   "aggregateId": "trip-id",
+  "aggregateType": "Trip",
   "producer": "trip-service",
   "correlationId": "UUID",
   "causationId": "UUID",
+  "schemaVersion": "1.0",
   "occurredAt": "...",
   "payload": {}
 }
 ```
+
+> Định nghĩa đầy đủ và quy ước giá trị (PascalCase, UUID thuần, tiền là JSON number): `docs/events.md` §2.
 
 ### ✅ Deadline — 04/10
 
@@ -487,13 +491,13 @@ DLQ
 
 ```text
 [9]  Driver: POST /api/trips/{id}/complete
+       → trip-service gọi Pricing Service: POST /api/pricing/final → finalFare
        → Trip status: IN_PROGRESS → COMPLETED
-[10] trip-service publishes: trip.completed → trip-events
+[10] trip-service publishes: trip.completed (kèm finalFare) → trip-events
        ↓
 [11] payment-service consumes: trip.completed
        → Deduplication check (eventId)
-       → Gọi Pricing Service: POST /api/pricing/final
-       → Process charge
+       → Charge finalFare lấy từ event (không gọi Pricing)
 [12] payment-service publishes: payment.success → payment-events
        ↓
 [13] trip-service consumes: payment.success
@@ -522,7 +526,7 @@ trip-service consumes: payment.failed
 
 > **Lưu ý:** Driver state KHÔNG bị rollback. Driver đã hoàn thành dịch vụ.
 
-* [ ] Saga flow (choreography pattern)
+* [ ] Saga flow (Trip Service là orchestrator theo SRS §13, các bước nối với nhau qua Kafka event)
 * [ ] Compensation cho payment failure
 * [ ] Payment failure → PAYMENT_FAILED state
 * [ ] Trip state consistency (saga_log table)
@@ -760,7 +764,7 @@ Process
 ```text
 Stop Payment
      ↓
-PaymentRequested
+TripCompleted (Kafka giữ message)
      ↓
 Retry
      ↓

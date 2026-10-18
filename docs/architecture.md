@@ -532,11 +532,11 @@ Grafana (dashboards)
   "timestamp": "2026-09-30T10:20:01Z",
   "service": "matching-service",
   "level": "INFO",
-  "eventType": "DriverMatched",
-  "correlationId": "corr-001",
+  "eventType": "DriverReserved",
+  "correlationId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
   "requestId": "req-abc",
-  "tripId": "T001",
-  "driverId": "D001",
+  "tripId": "550e8400-e29b-41d4-a716-446655440000",
+  "driverId": "d0000000-0000-4000-8000-000000000001",
   "result": "SUCCESS",
   "durationMs": 43
 }
@@ -545,7 +545,7 @@ Grafana (dashboards)
 ### 11.4. Correlation ID Propagation
 
 ```
-Passenger Request (correlationId=corr-001)
+Passenger Request (correlationId=f47ac10b-58cc-4372-a567-0e02b2c3d479)
        v
 Trip Service (log correlationId)
        v
