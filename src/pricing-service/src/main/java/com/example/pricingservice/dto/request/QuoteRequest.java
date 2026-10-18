@@ -8,6 +8,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+// Request body of POST /api/pricing/quote (docs/api.md §6): distance and duration are always estimated
+// by the Pricing Service, so a client cannot lower its own quote by sending them.
 @Data
 @Builder
 @NoArgsConstructor
@@ -24,11 +26,4 @@ public class QuoteRequest {
     @Valid
     @NotNull(message = "Destination location is required")
     private LocationDto destination;
-
-    @Schema(description = "Pre-calculated route distance in kilometers (optional)", example = "5.2")
-    private Double distanceKm;
-
-    @Schema(description = "Pre-calculated estimated duration in minutes (optional)", example = "15")
-    private Integer durationMin;
 }
-

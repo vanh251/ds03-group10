@@ -12,41 +12,38 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 
+/**
+ * Fare formula (docs/api.md §6): total = baseFare + distanceKm * distanceRate + durationMin * timeRate.
+ * Money is computed with BigDecimal and rounded to whole VND.
+ */
 @Slf4j
 @Service
 public class PricingServiceImpl implements PricingService {
 
-    public static final double BASE_FARE = 15000.0;
-    public static final double DISTANCE_RATE_PER_KM = 5000.0;
-    public static final double TIME_RATE_PER_MIN = 500.0;
+    public static final BigDecimal BASE_FARE = new BigDecimal("15000");
+    public static final BigDecimal DISTANCE_RATE_PER_KM = new BigDecimal("5000");
+    public static final BigDecimal TIME_RATE_PER_MIN = new BigDecimal("500");
     public static final String CURRENCY = "VND";
     private static final double AVERAGE_CITY_SPEED_KMH = 20.0;
+    // Straight-line distance times this factor approximates the street route
+    private static final double ROUTE_DETOUR_FACTOR = 1.25;
+    private static final double MIN_DISTANCE_KM = 0.5;
+    private static final int EARTH_RADIUS_KM = 6371;
 
     @Override
     public QuoteResponse calculateQuote(QuoteRequest request) {
-        log.info("Calculating estimated fare quote for pickup: ({}, {}) -> destination: ({}, {})",
+        log.info("Calculating quote: pickup=({}, {}), destination=({}, {})",
                 request.getPickup().getLatitude(), request.getPickup().getLongitude(),
                 request.getDestination().getLatitude(), request.getDestination().getLongitude());
 
-        double distanceKm;
-        if (request.getDistanceKm() != null && request.getDistanceKm() > 0) {
-            distanceKm = round(request.getDistanceKm(), 1);
-        } else {
-            distanceKm = calculateHaversineDistance(request.getPickup(), request.getDestination());
-        }
+        double distanceKm = estimateRouteDistanceKm(request.getPickup(), request.getDestination());
+        int durationMin = estimateDurationMinutes(distanceKm);
 
-        int durationMin;
-        if (request.getDurationMin() != null && request.getDurationMin() > 0) {
-            durationMin = request.getDurationMin();
-        } else {
-            durationMin = estimateDurationMinutes(distanceKm);
-        }
+        BigDecimal distanceFare = distanceFare(distanceKm);
+        BigDecimal timeFare = timeFare(durationMin);
+        BigDecimal totalFare = BASE_FARE.add(distanceFare).add(timeFare);
 
-        double distanceFare = round(distanceKm * DISTANCE_RATE_PER_KM, 0);
-        double timeFare = round(durationMin * TIME_RATE_PER_MIN, 0);
-        double totalFare = BASE_FARE + distanceFare + timeFare;
-
-        log.info("Quote result: distance={} km, duration={} min, totalFare={} {}",
+        log.info("Quote calculated: distance={} km, duration={} min, totalFare={} {}",
                 distanceKm, durationMin, totalFare, CURRENCY);
 
         return QuoteResponse.builder()
@@ -62,17 +59,15 @@ public class PricingServiceImpl implements PricingService {
 
     @Override
     public FinalFareResponse calculateFinalFare(FinalFareRequest request) {
-        log.info("Calculating final fare for trip {}: actualDistance={} km, actualDuration={} min",
-                request.getTripId(), request.getActualDistanceKm(), request.getActualDurationMin());
-
-        double distanceKm = round(request.getActualDistanceKm(), 1);
+        double distanceKm = roundOneDecimal(request.getActualDistanceKm());
         int durationMin = request.getActualDurationMin();
 
-        double distanceFare = round(distanceKm * DISTANCE_RATE_PER_KM, 0);
-        double timeFare = round(durationMin * TIME_RATE_PER_MIN, 0);
-        double totalFare = BASE_FARE + distanceFare + timeFare;
+        BigDecimal distanceFare = distanceFare(distanceKm);
+        BigDecimal timeFare = timeFare(durationMin);
+        BigDecimal totalFare = BASE_FARE.add(distanceFare).add(timeFare);
 
-        log.info("Final fare result for trip {}: totalFare={} {}", request.getTripId(), totalFare, CURRENCY);
+        log.info("Final fare calculated: tripId={}, distance={} km, duration={} min, totalFare={} {}",
+                request.getTripId(), distanceKm, durationMin, totalFare, CURRENCY);
 
         return FinalFareResponse.builder()
                 .tripId(request.getTripId())
@@ -84,8 +79,15 @@ public class PricingServiceImpl implements PricingService {
                 .build();
     }
 
-    private double calculateHaversineDistance(LocationDto from, LocationDto to) {
-        final int earthRadiusKm = 6371;
+    private static BigDecimal distanceFare(double distanceKm) {
+        return BigDecimal.valueOf(distanceKm).multiply(DISTANCE_RATE_PER_KM).setScale(0, RoundingMode.HALF_UP);
+    }
+
+    private static BigDecimal timeFare(int durationMin) {
+        return BigDecimal.valueOf(durationMin).multiply(TIME_RATE_PER_MIN).setScale(0, RoundingMode.HALF_UP);
+    }
+
+    private double estimateRouteDistanceKm(LocationDto from, LocationDto to) {
         double lat1 = Math.toRadians(from.getLatitude());
         double lon1 = Math.toRadians(from.getLongitude());
         double lat2 = Math.toRadians(to.getLatitude());
@@ -93,31 +95,19 @@ public class PricingServiceImpl implements PricingService {
 
         double dLat = lat2 - lat1;
         double dLon = lon2 - lon1;
-
         double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
-                + Math.cos(lat1) * Math.cos(lat2)
-                * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+                + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        double straightLineKm = EARTH_RADIUS_KM * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
-        double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        double distance = earthRadiusKm * c;
-
-        // Apply a routing detour factor (1.25x) to account for street network versus straight line
-        double estimatedRoadDistance = distance * 1.25;
-
-        // Minimum distance of 0.5 km
-        return Math.max(0.5, round(estimatedRoadDistance, 1));
+        return Math.max(MIN_DISTANCE_KM, roundOneDecimal(straightLineKm * ROUTE_DETOUR_FACTOR));
     }
 
     private int estimateDurationMinutes(double distanceKm) {
-        double hours = distanceKm / AVERAGE_CITY_SPEED_KMH;
-        int minutes = (int) Math.round(hours * 60);
+        int minutes = (int) Math.round(distanceKm / AVERAGE_CITY_SPEED_KMH * 60);
         return Math.max(1, minutes);
     }
 
-    private double round(double value, int places) {
-        if (places < 0) throw new IllegalArgumentException();
-        BigDecimal bd = BigDecimal.valueOf(value);
-        bd = bd.setScale(places, RoundingMode.HALF_UP);
-        return bd.doubleValue();
+    private static double roundOneDecimal(double value) {
+        return BigDecimal.valueOf(value).setScale(1, RoundingMode.HALF_UP).doubleValue();
     }
 }
