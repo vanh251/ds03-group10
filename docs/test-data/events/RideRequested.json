@@ -1,0 +1,27 @@
+{
+  "eventId": "e0000000-0000-4000-8000-000000000001",
+  "eventType": "RideRequested",
+  "aggregateId": "550e8400-e29b-41d4-a716-446655440000",
+  "aggregateType": "Trip",
+  "producer": "trip-service",
+  "correlationId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "causationId": null,
+  "schemaVersion": "1.0",
+  "occurredAt": "2026-09-30T10:00:00Z",
+  "payload": {
+    "tripId": "550e8400-e29b-41d4-a716-446655440000",
+    "passengerId": "a0000000-0000-4000-8000-000000000001",
+    "pickup": {
+      "latitude": 21.0285,
+      "longitude": 105.8542,
+      "address": "Hoan Kiem, Hanoi"
+    },
+    "destination": {
+      "latitude": 21.0188,
+      "longitude": 105.8520,
+      "address": "Dong Da, Hanoi"
+    },
+    "estimatedFare": 45000,
+    "requestedAt": "2026-09-30T10:00:00Z"
+  }
+}

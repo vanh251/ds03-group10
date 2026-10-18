@@ -1,0 +1,17 @@
+{
+  "eventId": "e0000000-0000-4000-8000-000000000003",
+  "eventType": "DriverAssigned",
+  "aggregateId": "550e8400-e29b-41d4-a716-446655440000",
+  "aggregateType": "Trip",
+  "producer": "trip-service",
+  "correlationId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "causationId": "e0000000-0000-4000-8000-000000000002",
+  "schemaVersion": "1.0",
+  "occurredAt": "2026-09-30T10:00:06Z",
+  "payload": {
+    "tripId": "550e8400-e29b-41d4-a716-446655440000",
+    "driverId": "d0000000-0000-4000-8000-000000000001",
+    "passengerId": "a0000000-0000-4000-8000-000000000001",
+    "assignedAt": "2026-09-30T10:00:06Z"
+  }
+}
