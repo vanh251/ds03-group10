@@ -1,10 +1,12 @@
+# syntax=docker/dockerfile:1
 # Multi-stage build for identity-service (Independent Gradle Project)
 FROM eclipse-temurin:17-jdk-jammy AS builder
 WORKDIR /app
 
 COPY . .
 RUN chmod +x ./gradlew
-RUN ./gradlew bootJar --no-daemon -x test && rm -f build/libs/*-plain.jar
+# The Gradle distribution and dependencies are cached across builds and shared by all services
+RUN --mount=type=cache,target=/root/.gradle ./gradlew bootJar --no-daemon -x test && rm -f build/libs/*-plain.jar
 
 FROM eclipse-temurin:17-jre-jammy
 WORKDIR /app

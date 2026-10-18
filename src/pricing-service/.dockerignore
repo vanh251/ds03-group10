@@ -1,0 +1,9 @@
+# Local build output and IDE files: the image builds from source with the Gradle wrapper
+build/
+.gradle/
+bin/
+out/
+.idea/
+.vscode/
+*.iml
+*.log
