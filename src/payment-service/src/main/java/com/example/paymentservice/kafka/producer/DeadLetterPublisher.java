@@ -1,9 +1,10 @@
 package com.example.paymentservice.kafka.producer;
 
 import com.example.paymentservice.kafka.event.DeadLetterMessage;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.producer.ProducerRecord;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.listener.ConsumerRecordRecoverer;
 import org.springframework.kafka.listener.RetryListener;
@@ -12,6 +13,7 @@ import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -23,16 +25,24 @@ import java.util.concurrent.TimeUnit;
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class DeadLetterPublisher implements ConsumerRecordRecoverer, RetryListener {
 
     public static final String DLQ_SUFFIX = ".DLQ";
+    public static final String CONSUMER_GROUP_HEADER = "x-consumer-group";
     private static final long SEND_TIMEOUT_SECONDS = 10;
 
     private final KafkaTemplate<String, String> kafkaTemplate;
     private final ObjectMapper objectMapper;
+    private final String consumerGroup;
 
     private final Map<String, FailureHistory> failures = new ConcurrentHashMap<>();
+
+    public DeadLetterPublisher(KafkaTemplate<String, String> kafkaTemplate, ObjectMapper objectMapper,
+                               @Value("${spring.kafka.consumer.group-id:}") String consumerGroup) {
+        this.kafkaTemplate = kafkaTemplate;
+        this.objectMapper = objectMapper;
+        this.consumerGroup = consumerGroup;
+    }
 
     @Override
     public void failedDelivery(ConsumerRecord<?, ?> record, Exception ex, int deliveryAttempt) {
@@ -64,8 +74,10 @@ public class DeadLetterPublisher implements ConsumerRecordRecoverer, RetryListen
         String dlqTopic = record.topic() + DLQ_SUFFIX;
         String key = record.key() == null ? null : record.key().toString();
         try {
-            kafkaTemplate.send(dlqTopic, key, objectMapper.writeValueAsString(message))
-                    .get(SEND_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            ProducerRecord<String, String> dlqRecord = new ProducerRecord<>(dlqTopic, key, objectMapper.writeValueAsString(message));
+            // Several consumer groups read the same topic: say which one gave up on the record
+            dlqRecord.headers().add(CONSUMER_GROUP_HEADER, consumerGroup.getBytes(StandardCharsets.UTF_8));
+            kafkaTemplate.send(dlqRecord).get(SEND_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("Interrupted while sending record to " + dlqTopic, e);
@@ -73,8 +85,8 @@ public class DeadLetterPublisher implements ConsumerRecordRecoverer, RetryListen
             // Rethrow so the error handler does not commit the offset and the record is delivered again
             throw new IllegalStateException("Failed to send record to " + dlqTopic, e);
         }
-        log.error("Moved record to DLQ: dlqTopic={}, partition={}, offset={}, retryCount={}, error={}, correlationId={}",
-                dlqTopic, record.partition(), record.offset(), message.getRetryCount(),
+        log.error("Moved record to DLQ: dlqTopic={}, consumerGroup={}, partition={}, offset={}, retryCount={}, error={}, correlationId={}",
+                dlqTopic, consumerGroup, record.partition(), record.offset(), message.getRetryCount(),
                 message.getError(), message.getCorrelationId());
     }
 
